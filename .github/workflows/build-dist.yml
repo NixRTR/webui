@@ -1,0 +1,66 @@
+name: Build and Commit Frontend dist/
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'frontend/tsconfig*.json'
+      - 'frontend/tailwind.config.js'
+      - 'frontend/postcss.config.js'
+      - 'frontend/index.html'
+      - 'frontend/public/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          git add frontend/dist/
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            git reset
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            git reset
+          fi
+
+      - name: Commit frontend/dist/
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add frontend/dist/
+          git commit -m "chore: update frontend dist/ build [skip ci]"
+          git push
+
