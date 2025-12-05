@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Development files
+.env
+.env.local
+.env.*.local
+*.log
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Node modules (will be installed in container)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Build artifacts (will be built in container)
+frontend/dist/
+frontend/node_modules/
+backend/__pycache__/
+*.egg-info/
+
+# Docker
+docker-compose*.yml
+!docker-compose.yml
+Dockerfile*
+.dockerignore
+
+# CI/CD
+.github/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# OS
+.DS_Store
+Thumbs.db
+

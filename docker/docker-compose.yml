@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: router-webui-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-router_webui}
+      POSTGRES_USER: ${POSTGRES_USER:-router_webui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-router_webui}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webui-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: router-webui-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webui-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+    image: ghcr.io/nixrtr/backend:latest
+    container_name: router-webui-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-router_webui}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-router_webui}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-in-production}
+      JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-1440}
+      
+      # Server
+      HOST: 0.0.0.0
+      PORT: 8080
+      DEBUG: ${DEBUG:-false}
+      
+      # System Paths (configurable for Docker)
+      KEA_LEASE_FILE: ${KEA_LEASE_FILE:-/var/lib/kea/dhcp4.leases}
+      ROUTER_CONFIG_FILE: ${ROUTER_CONFIG_FILE:-/etc/nixos/router-config.nix}
+      UNBOUND_CONTROL_PATH: ${UNBOUND_CONTROL_PATH:-/run/unbound/control}
+      
+      # Collection
+      COLLECTION_INTERVAL: ${COLLECTION_INTERVAL:-5}
+      COLLECTION_INTERVAL_NORMAL: ${COLLECTION_INTERVAL_NORMAL:-5}
+      COLLECTION_INTERVAL_THROTTLED: ${COLLECTION_INTERVAL_THROTTLED:-10}
+      
+      # CORS (not needed in Docker as nginx handles routing)
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+    volumes:
+      # System paths (mount from host if available)
+      - ${KEA_LEASE_DIR:-/var/lib/kea}:/var/lib/kea:ro
+      - ${ROUTER_CONFIG_DIR:-/etc/nixos}:/etc/nixos:ro
+      - ${UNBOUND_RUN_DIR:-/run/unbound}:/run/unbound:ro
+      # PAM authentication (read-only)
+      - ${PAM_CONFIG_DIR:-/etc/pam.d}:/etc/pam.d:ro
+      - ${SHADOW_FILE:-/etc/shadow}:/etc/shadow:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - webui-network
+
+  worker:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend/Dockerfile
+    image: ghcr.io/nixrtr/backend:latest
+    container_name: router-webui-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+        celery -A backend.celery_app.app worker --loglevel=info --queues=aggregation,notifications,buffer_flush --concurrency=2 &
+        celery -A backend.celery_app.app beat --loglevel=info &
+        wait
+      "
+    environment:
+      # Same environment as backend
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-router_webui}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-router_webui}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-in-production}
+      JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
+      KEA_LEASE_FILE: ${KEA_LEASE_FILE:-/var/lib/kea/dhcp4.leases}
+      ROUTER_CONFIG_FILE: ${ROUTER_CONFIG_FILE:-/etc/nixos/router-config.nix}
+      UNBOUND_CONTROL_PATH: ${UNBOUND_CONTROL_PATH:-/run/unbound/control}
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - ${KEA_LEASE_DIR:-/var/lib/kea}:/var/lib/kea:ro
+      - ${ROUTER_CONFIG_DIR:-/etc/nixos}:/etc/nixos:ro
+      - ${UNBOUND_RUN_DIR:-/run/unbound}:/run/unbound:ro
+      - ${PAM_CONFIG_DIR:-/etc/pam.d}:/etc/pam.d:ro
+      - ${SHADOW_FILE:-/etc/shadow}:/etc/shadow:ro
+    networks:
+      - webui-network
+
+  webui:
+    build:
+      context: ..
+      dockerfile: docker/webui/Dockerfile
+    image: ghcr.io/nixrtr/webui:latest
+    container_name: router-webui-webui
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    volumes:
+      # Mount built frontend and docs (if building locally)
+      - ../frontend/dist:/usr/share/nginx/html:ro
+      - ../docs/dist:/usr/share/nginx/html/docs:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - webui-network
+
+networks:
+  webui-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+

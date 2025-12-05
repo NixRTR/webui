@@ -1,0 +1,31 @@
+version: '3.8'
+
+# Example override file for local customization
+# Copy this file to docker-compose.override.yml to use it
+# docker-compose.override.yml is automatically loaded by docker-compose
+
+services:
+  backend:
+    # Example: Enable debug mode
+    environment:
+      - DEBUG=true
+    
+    # Example: Mount additional volumes
+    volumes:
+      - ./custom-config:/app/config:ro
+      - ./logs:/app/logs
+
+  worker:
+    # Example: Adjust worker concurrency
+    command: >
+      sh -c "
+        celery -A backend.celery_app.app worker --loglevel=debug --queues=aggregation,notifications,buffer_flush --concurrency=4 &
+        celery -A backend.celery_app.app beat --loglevel=debug &
+        wait
+      "
+
+  webui:
+    # Example: Use different port
+    ports:
+      - "3000:80"
+
