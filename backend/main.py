@@ -46,14 +46,6 @@ from .api.apprise import router as apprise_router
 from .api.notifications import router as notifications_router
 from .api.dns import router as dns_router
 from .api.dhcp import router as dhcp_router
-from .workers import (
-    start_aggregation_worker,
-    stop_aggregation_worker,
-    start_notification_worker,
-    stop_notification_worker,
-    start_buffer_flusher,
-    stop_buffer_flusher,
-)
 from .utils.redis_client import close_redis_client
 from .utils.apprise import migrate_secrets_to_database
 from .utils.dns import migrate_dns_config_to_database
@@ -106,37 +98,16 @@ async def lifespan(app: FastAPI):
     await manager.start_broadcasting()
     print("WebSocket broadcaster started")
     
-    # Start background workers
-    await start_aggregation_worker()
-    print("Aggregation worker started")
-    
-    await start_notification_worker()
-    print("Notification worker started")
-    
-    # Start Redis buffer flush worker if enabled
-    if settings.redis_write_buffer_enabled:
-        await start_buffer_flusher()
-        print("Redis buffer flush worker started")
+    # Note: Background workers now run as separate Celery processes
+    # See router-webui-celery-worker.service and router-webui-celery-beat.service
     
     yield
     
     # Shutdown
     print("Shutting down...")
     
-    # Stop background workers
-    await stop_aggregation_worker()
-    print("Aggregation worker stopped")
-    
-    await stop_notification_worker()
-    print("Notification worker stopped")
-    
     await manager.stop_broadcasting()
     print("WebSocket broadcaster stopped")
-    
-    # Stop Redis buffer flush worker
-    if settings.redis_write_buffer_enabled:
-        await stop_buffer_flusher()
-        print("Redis buffer flush worker stopped")
     
     # Close Redis client connection
     await close_redis_client()
