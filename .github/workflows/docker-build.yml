@@ -101,26 +101,11 @@ jobs:
           TIMESTAMP=$(date +%Y-%m-%d-%H%M%S)
           echo "tags=ghcr.io/nixrtr/webui:latest,ghcr.io/nixrtr/webui:${BRANCH_NAME},ghcr.io/nixrtr/webui:${TIMESTAMP}" >> $GITHUB_OUTPUT
 
-      - name: Build frontend
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      - name: Build docs (if exists)
-        run: |
-          if [ -d "../docs" ]; then
-            cd ../docs
-            npm ci
-            npm run build
-          fi
-        continue-on-error: true
-
       - name: Build and push webui image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./docker/webui/Dockerfile
+          context: ..
+          file: ./webui/docker/webui/Dockerfile
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
