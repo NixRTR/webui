@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   postgres:
@@ -134,8 +133,8 @@ services:
 
   webui:
     build:
-      context: ..
-      dockerfile: docker/webui/Dockerfile
+      context: ../..
+      dockerfile: webui/docker/webui/Dockerfile
     image: ghcr.io/nixrtr/webui:latest
     container_name: router-webui-webui
     depends_on:

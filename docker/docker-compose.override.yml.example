@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Example override file for local customization
 # Copy this file to docker-compose.override.yml to use it
 # docker-compose.override.yml is automatically loaded by docker-compose
