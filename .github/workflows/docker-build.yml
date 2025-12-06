@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should-build: ${{ steps.check.outputs.should-build }}
+      should-build-backend: ${{ steps.check.outputs.should-build-backend }}
+      should-build-webui: ${{ steps.check.outputs.should-build-webui }}
     steps:
       - name: Check commit message
         id: check
@@ -23,10 +25,20 @@ jobs:
           else
             echo "should-build=false" >> $GITHUB_OUTPUT
           fi
+          if echo "${{ github.event.head_commit.message }}" | grep -qi "BUILD_BACKEND"; then
+            echo "should-build-backend=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-build-backend=false" >> $GITHUB_OUTPUT
+          fi
+            if echo "${{ github.event.head_commit.message }}" | grep -qi "BUILD_WEBUI"; then
+                echo "should-build-webui=true" >> $GITHUB_OUTPUT
+            else
+                echo "should-build-webui=false" >> $GITHUB_OUTPUT
+            fi
 
   build-backend:
     needs: check-build-trigger
-    if: needs.check-build-trigger.outputs.should-build == 'true'
+    if: needs.check-build-trigger.outputs.should-build == 'true' || needs.check-build-trigger.outputs.should-build-backend == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,18 +80,9 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
-      - name: Make backend image public
-        run: |
-          gh api \
-            -X PATCH \
-            /user/packages/container/nixrtr%2Fbackend \
-            -f visibility=public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build-webui:
     needs: check-build-trigger
-    if: needs.check-build-trigger.outputs.should-build == 'true'
+    if: needs.check-build-trigger.outputs.should-build == 'true' || needs.check-build-trigger.outputs.should-build-webui == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -128,12 +131,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-
-      - name: Make webui image public
-        run: |
-          gh api \
-            -X PATCH \
-            /user/packages/container/nixrtr%2Fwebui \
-            -f visibility=public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
