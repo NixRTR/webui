@@ -51,5 +51,5 @@ if settings.redis_password:
 result_backend = broker_url
 
 # Celery Beat schedule
-beat_schedule = beat_schedule_config_config
+beat_schedule = beat_schedule_config
 

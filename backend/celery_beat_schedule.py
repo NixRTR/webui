@@ -2,7 +2,7 @@
 Celery Beat schedule configuration for periodic tasks
 """
 from celery.schedules import crontab
-from ..config import settings
+from .config import settings
 
 # Beat schedule for periodic tasks
 beat_schedule = {
