@@ -13,3 +13,6 @@ app.config_from_object('backend.celery_config')
 # Auto-discover tasks from workers module
 app.autodiscover_tasks(['backend.workers'])
 
+
+
+
