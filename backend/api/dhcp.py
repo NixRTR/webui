@@ -20,7 +20,7 @@ from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
 from ..utils.dnsmasq_dhcp import generate_dnsmasq_dhcp_config
 from ..utils.config_writer import write_dhcp_config
-from datetime import datetime
+from ..utils.dhcp import migrate_dhcp_config_to_database
 import json
 from datetime import datetime
 
@@ -1035,5 +1035,43 @@ async def sync_dhcp_config(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to sync DHCP config: {str(e)}"
+        )
+
+
+@router.post("/import-from-config/{network}")
+async def import_dhcp_from_config(
+    network: str,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Import DHCP configuration from router-config.nix to database
+    
+    This endpoint reads router-config.nix and syncs DHCP configuration to the database.
+    Useful for importing existing configurations that were set up before the WebUI was used.
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        Success message
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    try:
+        # Use the existing migration function
+        await migrate_dhcp_config_to_database(db)
+        
+        logger.info(f"Imported DHCP configuration from router-config.nix for network {network}")
+        
+        return {
+            "message": f"DHCP configuration imported from router-config.nix",
+            "network": network
+        }
+    except Exception as e:
+        logger.error(f"Failed to import DHCP config for network {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import DHCP config: {str(e)}"
         )
 

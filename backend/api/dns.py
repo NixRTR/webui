@@ -19,6 +19,8 @@ from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
 from ..utils.dnsmasq_dns import generate_dnsmasq_dns_config
 from ..utils.config_writer import write_dns_config
+from ..utils.dnsmasq_parser import sync_dnsmasq_config_to_database
+from ..utils.dns import migrate_dns_config_to_database
 import json
 from datetime import datetime
 
@@ -981,5 +983,64 @@ async def sync_dns_config(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to sync DNS config: {str(e)}"
+        )
+
+
+@router.post("/import-from-config/{network}")
+async def import_dns_from_config(
+    network: str,
+    source: str = "dnsmasq",  # "dnsmasq" or "router-config"
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Import DNS configuration from config files to database
+    
+    This endpoint reads configuration from either dnsmasq config files or router-config.nix
+    and syncs them to the database. Useful for importing existing configurations.
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        source: Source to import from - "dnsmasq" (reads dnsmasq config files) or 
+                "router-config" (reads router-config.nix). Default: "dnsmasq"
+        
+    Returns:
+        Success message with counts of imported records
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    if source not in ['dnsmasq', 'router-config']:
+        raise HTTPException(status_code=400, detail="Source must be 'dnsmasq' or 'router-config'")
+    
+    try:
+        if source == "dnsmasq":
+            # Import from dnsmasq config files
+            zones_updated, records_updated = await sync_dnsmasq_config_to_database(db, network)
+            
+            logger.info(f"Imported {zones_updated} zones and {records_updated} records from dnsmasq configs for network {network}")
+            
+            return {
+                "message": f"DNS configuration imported from dnsmasq config files",
+                "network": network,
+                "source": source,
+                "zones_updated": zones_updated,
+                "records_updated": records_updated
+            }
+        else:
+            # Import from router-config.nix
+            await migrate_dns_config_to_database(db)
+            
+            logger.info(f"Imported DNS configuration from router-config.nix for network {network}")
+            
+            return {
+                "message": f"DNS configuration imported from router-config.nix",
+                "network": network,
+                "source": source
+            }
+    except Exception as e:
+        logger.error(f"Failed to import DNS config for network {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import DNS config: {str(e)}"
         )
 
