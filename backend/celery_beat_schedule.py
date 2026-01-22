@@ -12,6 +12,12 @@ beat_schedule = {
         'schedule': crontab(hour=2, minute=0),  # 2 AM UTC daily
     },
     
+    # Daily history cleanup at 3 AM UTC (after aggregation)
+    'cleanup-history': {
+        'task': 'backend.workers.history_cleanup.cleanup_history_task',
+        'schedule': crontab(hour=3, minute=0),  # 3 AM UTC daily
+    },
+    
     # Notification evaluation every 30 seconds
     'evaluate-notifications': {
         'task': 'backend.workers.notifications.evaluate_notifications',

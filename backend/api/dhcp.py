@@ -10,22 +10,29 @@ import logging
 import socket
 import os
 
-from ..database import get_db, DhcpNetworkDB, DhcpReservationDB
+from ..database import get_db, DhcpNetworkDB, DhcpReservationDB, DhcpConfigHistoryDB
+from sqlalchemy import select
 from ..models import (
     DhcpNetwork, DhcpNetworkCreate, DhcpNetworkUpdate,
     DhcpReservation, DhcpReservationCreate, DhcpReservationUpdate
 )
 from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
+from ..utils.dnsmasq_dhcp import generate_dnsmasq_dhcp_config
+from ..utils.config_writer import write_dhcp_config
+from datetime import datetime
+import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dhcp", tags=["dhcp"])
 
-# DHCP service name (dnsmasq provides DHCP per-network)
-# Note: DHCP is now provided by dnsmasq-homelab and dnsmasq-lan services
-# This endpoint controls dnsmasq-homelab as the primary service
-DHCP_SERVICE_NAME = "dnsmasq-homelab"
+# Map network names to systemd service names
+NETWORK_SERVICE_MAP = {
+    'homelab': 'dnsmasq-homelab',
+    'lan': 'dnsmasq-lan',
+}
 
 
 def _control_service_via_systemctl(service_name: str, action: str) -> None:
@@ -80,6 +87,119 @@ def _control_service_via_systemctl(service_name: str, action: str) -> None:
         raise subprocess.CalledProcessError(1, f"socket command", stderr=str(e))
 
 
+async def _save_dhcp_config_history(
+    db: AsyncSession,
+    network: str,
+    change_type: str,
+    changed_by: str,
+    change_details: dict
+) -> None:
+    """Save DHCP configuration change to history
+    
+    Args:
+        db: Database session
+        network: Network name
+        change_type: Type of change ("create", "update", "delete")
+        changed_by: Username who made the change
+        change_details: Additional details about the change
+    """
+    # Get current DHCP configuration snapshot
+    result = await db.execute(
+        select(DhcpNetworkDB)
+        .where(DhcpNetworkDB.network == network)
+        .limit(1)
+    )
+    dhcp_network = result.scalar_one_or_none()
+    
+    # Build config snapshot
+    config_snapshot = {
+        'network': None,
+        'reservations': []
+    }
+    
+    if dhcp_network:
+        config_snapshot['network'] = {
+            'id': dhcp_network.id,
+            'network': dhcp_network.network,
+            'enabled': dhcp_network.enabled,
+            'start': str(dhcp_network.start),
+            'end': str(dhcp_network.end),
+            'lease_time': dhcp_network.lease_time,
+            'dns_servers': [str(ip) for ip in (dhcp_network.dns_servers or [])],
+            'dynamic_domain': dhcp_network.dynamic_domain,
+        }
+        
+        # Get reservations for this network
+        result = await db.execute(
+            select(DhcpReservationDB)
+            .where(DhcpReservationDB.network_id == dhcp_network.id)
+            .order_by(DhcpReservationDB.hostname)
+        )
+        reservations = result.scalars().all()
+        
+        for reservation in reservations:
+            config_snapshot['reservations'].append({
+                'id': reservation.id,
+                'hostname': reservation.hostname,
+                'hw_address': str(reservation.hw_address),
+                'ip_address': str(reservation.ip_address),
+                'comment': reservation.comment,
+                'enabled': reservation.enabled,
+            })
+    
+    # Save to history
+    history = DhcpConfigHistoryDB(
+        network=network,
+        change_type=change_type,
+        changed_by=changed_by,
+        config_snapshot=config_snapshot,
+        change_details=change_details
+    )
+    db.add(history)
+    await db.commit()
+
+
+async def _write_dhcp_config_and_reload(
+    db: AsyncSession,
+    network: str,
+    changed_by: str,
+    change_type: str,
+    change_details: dict
+) -> None:
+    """Generate DHCP config, write it, and reload dnsmasq service
+    
+    Args:
+        db: Database session
+        network: Network name
+        changed_by: Username who made the change
+        change_type: Type of change
+        change_details: Additional details about the change
+    """
+    try:
+        # Save history
+        await _save_dhcp_config_history(db, network, change_type, changed_by, change_details)
+        
+        # Generate config
+        config_content = await generate_dnsmasq_dhcp_config(db, network)
+        
+        # Write config via helper service (can be None if DHCP disabled)
+        if config_content:
+            write_dhcp_config(network, config_content)
+        else:
+            # DHCP disabled - write empty file or delete existing
+            write_dhcp_config(network, "# DHCP disabled\n")
+        
+        # Reload dnsmasq service
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        _control_service_via_systemctl(service_name, "reload")
+        
+        logger.info(f"DHCP config written and service reloaded for network {network}")
+    except Exception as e:
+        logger.error(f"Failed to write DHCP config for network {network}: {e}", exc_info=True)
+        # Don't raise - allow the API call to succeed even if config write fails
+        # The database change is already committed
+
+
 @router.get("/networks", response_model=List[DhcpNetwork])
 async def get_networks(
     network: Optional[str] = None,
@@ -128,7 +248,7 @@ async def get_networks(
 @router.post("/networks", response_model=DhcpNetwork)
 async def create_network(
     network: DhcpNetworkCreate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpNetwork:
     """Create a new DHCP network
@@ -165,6 +285,12 @@ async def create_network(
     db.add(db_network)
     await db.commit()
     await db.refresh(db_network)
+    
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network.network, username, "create",
+        {"network_id": db_network.id, "network": network.network}
+    )
     
     # Convert INET types to strings
     net_dict = {
@@ -252,6 +378,12 @@ async def update_network(
     await db.commit()
     await db.refresh(network)
     
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network.network, username, "update",
+        {"network_id": network_id, "network": network.network}
+    )
+    
     # Convert INET types to strings
     net_dict = {
         'id': network.id,
@@ -272,7 +404,7 @@ async def update_network(
 @router.delete("/networks/{network_id}")
 async def delete_network(
     network_id: int,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a DHCP network (cascades to reservations)
@@ -287,8 +419,15 @@ async def delete_network(
     if not network:
         raise HTTPException(status_code=404, detail="DHCP network not found")
     
+    network_name = network.network
     await db.delete(network)
     await db.commit()
+    
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network_name, username, "delete",
+        {"network_id": network_id, "network": network_name}
+    )
     
     return {"message": "DHCP network deleted"}
 
@@ -346,7 +485,7 @@ async def get_reservations(
 async def create_reservation(
     network_id: int,
     reservation: DhcpReservationCreate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpReservation:
     """Create a new DHCP reservation
@@ -407,6 +546,12 @@ async def create_reservation(
     await db.commit()
     await db.refresh(db_reservation)
     
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network.network, username, "create",
+        {"reservation_id": db_reservation.id, "hostname": reservation.hostname, "network_id": network_id}
+    )
+    
     # Convert MACADDR and INET types to strings
     res_dict = {
         'id': db_reservation.id,
@@ -464,7 +609,7 @@ async def get_reservation(
 async def update_reservation(
     reservation_id: int,
     reservation_update: DhcpReservationUpdate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpReservation:
     """Update a DHCP reservation
@@ -550,13 +695,49 @@ async def update_reservation(
                 detail=f"IP address {reservation_update.ip_address} already reserved in this network"
             )
     
+    # Get network to determine network name
+    result = await db.execute(
+        select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
+    )
+    network = result.scalar_one_or_none()
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+    
+    # Store original network for config update
+    original_network = network.network
+    
     # Update fields
     update_data = reservation_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(reservation, field, value)
     
+    # If network_id changed, get new network
+    if reservation_update.network_id and reservation_update.network_id != reservation.network_id:
+        result = await db.execute(
+            select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
+        )
+        network = result.scalar_one_or_none()
+        if network:
+            original_network = network.network
+    
     await db.commit()
     await db.refresh(reservation)
+    
+    # Write config and reload service (for both old and new network if changed)
+    networks_to_update = {original_network}
+    if reservation.network_id != reservation.network_id:
+        result = await db.execute(
+            select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
+        )
+        new_network = result.scalar_one_or_none()
+        if new_network:
+            networks_to_update.add(new_network.network)
+    
+    for net in networks_to_update:
+        await _write_dhcp_config_and_reload(
+            db, net, username, "update",
+            {"reservation_id": reservation_id, "hostname": reservation.hostname, "network_id": reservation.network_id}
+        )
     
     # Convert MACADDR and INET types to strings
     res_dict = {
@@ -577,7 +758,7 @@ async def update_reservation(
 @router.delete("/reservations/{reservation_id}")
 async def delete_reservation(
     reservation_id: int,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a DHCP reservation
@@ -592,37 +773,63 @@ async def delete_reservation(
     if not reservation:
         raise HTTPException(status_code=404, detail="DHCP reservation not found")
     
+    # Get network before deleting
+    result = await db.execute(
+        select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
+    )
+    network = result.scalar_one_or_none()
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+    
+    network_name = network.network
+    hostname = reservation.hostname
+    
     await db.delete(reservation)
     await db.commit()
+    
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network_name, username, "delete",
+        {"reservation_id": reservation_id, "hostname": hostname, "network_id": reservation.network_id}
+    )
     
     return {"message": "DHCP reservation deleted"}
 
 
-@router.get("/service-status")
+@router.get("/service-status/{network}")
 async def get_dhcp_service_status(
+    network: str,
     _: str = Depends(get_current_user)
 ):
-    """Get DHCP service status
+    """Get DHCP service status for a network
     
     Uses systemctl to retrieve status (same approach as other services).
     Reading status doesn't require sudo, only control operations do.
     
+    Args:
+        network: Network name ("homelab" or "lan")
+        
     Returns:
         Service status information
     """
-    # Use the same get_service_status function that other services use
-    status = get_service_status(DHCP_SERVICE_NAME)
+    if network not in NETWORK_SERVICE_MAP:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    service_name = NETWORK_SERVICE_MAP[network]
+    status = get_service_status(service_name)
     
     if status is None:
         return {
-            "service_name": DHCP_SERVICE_NAME,
+            "service_name": service_name,
+            "network": network,
             "is_active": False,
             "is_enabled": False,
             "exists": False
         }
     
     return {
-        "service_name": DHCP_SERVICE_NAME,
+        "service_name": service_name,
+        "network": network,
         "is_active": status.is_active,
         "is_enabled": status.is_enabled,
         "exists": True,
@@ -632,46 +839,154 @@ async def get_dhcp_service_status(
     }
 
 
-@router.post("/service/{action}")
+@router.post("/service/{network}/{action}")
 async def control_dhcp_service(
+    network: str,
     action: str,
     _: str = Depends(get_current_user)
 ):
-    """Control DHCP service
+    """Control DHCP service for a network
     
     Args:
+        network: Network name ("homelab" or "lan")
         action: Action to perform ("start", "stop", "restart", "reload")
         
     Returns:
         Success message
     """
+    if network not in NETWORK_SERVICE_MAP:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
     if action not in ['start', 'stop', 'restart', 'reload']:
         logger.warning(f"Invalid action requested: {action}")
         raise HTTPException(status_code=400, detail="Action must be 'start', 'stop', 'restart', or 'reload'")
     
-    full_service_name = f"{DHCP_SERVICE_NAME}.service"
+    service_name = NETWORK_SERVICE_MAP[network]
+    full_service_name = f"{service_name}.service"
     
     try:
         # Use socket-based service control
         _control_service_via_systemctl(full_service_name, action)
-        logger.info(f"Successfully {action}ed service {DHCP_SERVICE_NAME}")
+        logger.info(f"Successfully {action}ed service {service_name}")
         
         return {
-            "message": f"Service {DHCP_SERVICE_NAME} {action}ed successfully",
+            "message": f"Service {service_name} {action}ed successfully",
             "action": action,
-            "service_name": DHCP_SERVICE_NAME
+            "service_name": service_name,
+            "network": network
         }
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr or e.stdout or str(e)
-        logger.error(f"Failed to {action} service {DHCP_SERVICE_NAME}: returncode={e.returncode}, stderr={e.stderr[:500] if e.stderr else None}, stdout={e.stdout[:500] if e.stdout else None}")
+        logger.error(f"Failed to {action} service {service_name}: returncode={e.returncode}, stderr={e.stderr[:500] if e.stderr else None}, stdout={e.stdout[:500] if e.stdout else None}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to {action} service {DHCP_SERVICE_NAME}: {error_msg}"
+            detail=f"Failed to {action} service {service_name}: {error_msg}"
         )
     except (subprocess.TimeoutExpired, ValueError, RuntimeError) as e:
-        logger.error(f"Error while trying to {action} service {DHCP_SERVICE_NAME}: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(f"Error while trying to {action} service {service_name}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error while trying to {action} service {DHCP_SERVICE_NAME}: {str(e)}"
+            detail=f"Error while trying to {action} service {service_name}: {str(e)}"
         )
+
+
+@router.post("/revert/{network}/{history_id}")
+async def revert_dhcp_config(
+    network: str,
+    history_id: int,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Revert DHCP configuration to a previous state
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        history_id: History record ID to revert to
+        
+    Returns:
+        Success message
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    # Get history record
+    result = await db.execute(
+        select(DhcpConfigHistoryDB)
+        .where(
+            DhcpConfigHistoryDB.id == history_id,
+            DhcpConfigHistoryDB.network == network
+        )
+    )
+    history = result.scalar_one_or_none()
+    
+    if not history:
+        raise HTTPException(
+            status_code=404,
+            detail=f"History record {history_id} not found for network {network}"
+        )
+    
+    if history.status == 'reverted':
+        raise HTTPException(
+            status_code=400,
+            detail=f"History record {history_id} has already been reverted"
+        )
+    
+    # Restore configuration from snapshot
+    config_snapshot = history.config_snapshot
+    
+    # Delete all existing network and reservations for this network
+    result = await db.execute(
+        select(DhcpNetworkDB).where(DhcpNetworkDB.network == network)
+    )
+    dhcp_network = result.scalar_one_or_none()
+    if dhcp_network:
+        await db.delete(dhcp_network)
+    
+    # Restore network from snapshot
+    network_data = config_snapshot.get('network')
+    if network_data:
+        db_network = DhcpNetworkDB(
+            id=network_data['id'],
+            network=network,
+            enabled=network_data['enabled'],
+            start=network_data['start'],
+            end=network_data['end'],
+            lease_time=network_data['lease_time'],
+            dns_servers=network_data.get('dns_servers'),
+            dynamic_domain=network_data.get('dynamic_domain')
+        )
+        db.add(db_network)
+        await db.flush()  # Flush to get network ID
+        
+        # Restore reservations
+        for res_data in config_snapshot.get('reservations', []):
+            db_reservation = DhcpReservationDB(
+                id=res_data['id'],
+                network_id=db_network.id,
+                hostname=res_data['hostname'],
+                hw_address=res_data['hw_address'],
+                ip_address=res_data['ip_address'],
+                comment=res_data.get('comment'),
+                enabled=res_data['enabled']
+            )
+            db.add(db_reservation)
+    
+    # Mark history record as reverted
+    history.status = 'reverted'
+    history.reverted_by = username
+    history.reverted_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    # Write config and reload service
+    await _write_dhcp_config_and_reload(
+        db, network, username, "revert",
+        {"history_id": history_id, "reverted_from": history.change_type}
+    )
+    
+    return {
+        "message": f"DHCP configuration reverted to history record {history_id}",
+        "network": network,
+        "history_id": history_id
+    }
 

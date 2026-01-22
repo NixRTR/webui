@@ -10,13 +10,17 @@ import os
 import shutil
 import logging
 
-from ..database import get_db, DnsZoneDB, DnsRecordDB
+from ..database import get_db, DnsZoneDB, DnsRecordDB, DnsConfigHistoryDB
 from ..models import (
     DnsZone, DnsZoneCreate, DnsZoneUpdate,
     DnsRecord, DnsRecordCreate, DnsRecordUpdate
 )
 from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
+from ..utils.dnsmasq_dns import generate_dnsmasq_dns_config
+from ..utils.config_writer import write_dns_config
+import json
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,115 @@ NETWORK_SERVICE_MAP = {
     'homelab': 'dnsmasq-homelab',
     'lan': 'dnsmasq-lan',
 }
+
+
+async def _save_dns_config_history(
+    db: AsyncSession,
+    network: str,
+    change_type: str,
+    changed_by: str,
+    change_details: dict
+) -> None:
+    """Save DNS configuration change to history
+    
+    Args:
+        db: Database session
+        network: Network name
+        change_type: Type of change ("create", "update", "delete")
+        changed_by: Username who made the change
+        change_details: Additional details about the change
+    """
+    # Get current DNS configuration snapshot
+    result = await db.execute(
+        select(DnsZoneDB)
+        .where(DnsZoneDB.network == network)
+        .order_by(DnsZoneDB.name)
+    )
+    zones = result.scalars().all()
+    
+    # Build config snapshot
+    config_snapshot = {
+        'zones': []
+    }
+    
+    for zone in zones:
+        zone_data = {
+            'id': zone.id,
+            'name': zone.name,
+            'authoritative': zone.authoritative,
+            'forward_to': zone.forward_to,
+            'delegate_to': zone.delegate_to,
+            'enabled': zone.enabled,
+            'records': []
+        }
+        
+        # Get records for this zone
+        result = await db.execute(
+            select(DnsRecordDB)
+            .where(DnsRecordDB.zone_id == zone.id)
+            .order_by(DnsRecordDB.name)
+        )
+        records = result.scalars().all()
+        
+        for record in records:
+            zone_data['records'].append({
+                'id': record.id,
+                'name': record.name,
+                'type': record.type,
+                'value': record.value,
+                'comment': record.comment,
+                'enabled': record.enabled,
+            })
+        
+        config_snapshot['zones'].append(zone_data)
+    
+    # Save to history
+    history = DnsConfigHistoryDB(
+        network=network,
+        change_type=change_type,
+        changed_by=changed_by,
+        config_snapshot=config_snapshot,
+        change_details=change_details
+    )
+    db.add(history)
+    await db.commit()
+
+
+async def _write_dns_config_and_reload(
+    db: AsyncSession,
+    network: str,
+    changed_by: str,
+    change_type: str,
+    change_details: dict
+) -> None:
+    """Generate DNS config, write it, and reload dnsmasq service
+    
+    Args:
+        db: Database session
+        network: Network name
+        changed_by: Username who made the change
+        change_type: Type of change
+        change_details: Additional details about the change
+    """
+    try:
+        # Save history
+        await _save_dns_config_history(db, network, change_type, changed_by, change_details)
+        
+        # Generate config
+        config_content = await generate_dnsmasq_dns_config(db, network)
+        
+        # Write config via helper service
+        write_dns_config(network, config_content)
+        
+        # Reload dnsmasq service
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        _control_service_via_systemctl(service_name, "reload")
+        
+        logger.info(f"DNS config written and service reloaded for network {network}")
+    except Exception as e:
+        logger.error(f"Failed to write DNS config for network {network}: {e}", exc_info=True)
+        # Don't raise - allow the API call to succeed even if config write fails
+        # The database change is already committed
 
 
 def _find_sudo() -> str:
@@ -165,7 +278,7 @@ async def get_zones(
 @router.post("/zones", response_model=DnsZone)
 async def create_zone(
     zone: DnsZoneCreate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DnsZone:
     """Create a new DNS zone
@@ -203,6 +316,12 @@ async def create_zone(
     await db.commit()
     await db.refresh(db_zone)
     
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, zone.network, username, "create",
+        {"zone_id": db_zone.id, "zone_name": zone.name}
+    )
+    
     return DnsZone.model_validate(db_zone)
 
 
@@ -238,7 +357,7 @@ async def get_zone(
 async def update_zone(
     zone_id: int,
     zone_update: DnsZoneUpdate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DnsZone:
     """Update a DNS zone
@@ -260,6 +379,9 @@ async def update_zone(
             status_code=404,
             detail=f"Zone {zone_id} not found"
         )
+    
+    # Store original network for config update
+    original_network = zone.network
     
     # Check for name/network conflict if updating name or network
     if zone_update.name is not None or zone_update.network is not None:
@@ -298,13 +420,24 @@ async def update_zone(
     await db.commit()
     await db.refresh(zone)
     
+    # Write config and reload service (for both old and new network if changed)
+    networks_to_update = {original_network}
+    if zone.network != original_network:
+        networks_to_update.add(zone.network)
+    
+    for network in networks_to_update:
+        await _write_dns_config_and_reload(
+            db, network, username, "update",
+            {"zone_id": zone_id, "zone_name": zone.name}
+        )
+    
     return DnsZone.model_validate(zone)
 
 
 @router.delete("/zones/{zone_id}")
 async def delete_zone(
     zone_id: int,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Delete a DNS zone (cascades to records)
@@ -326,8 +459,17 @@ async def delete_zone(
             detail=f"Zone {zone_id} not found"
         )
     
+    network = zone.network
+    zone_name = zone.name
+    
     await db.delete(zone)
     await db.commit()
+    
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, network, username, "delete",
+        {"zone_id": zone_id, "zone_name": zone_name}
+    )
     
     return {"message": f"Zone {zone_id} deleted successfully"}
 
@@ -371,7 +513,7 @@ async def get_zone_records(
 async def create_record(
     zone_id: int,
     record: DnsRecordCreate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DnsRecord:
     """Create a new DNS record in a zone
@@ -424,6 +566,12 @@ async def create_record(
     db.add(db_record)
     await db.commit()
     await db.refresh(db_record)
+    
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, zone.network, username, "create",
+        {"record_id": db_record.id, "record_name": record.name, "zone_id": zone_id}
+    )
     
     return DnsRecord.model_validate(db_record)
 
@@ -527,8 +675,22 @@ async def update_record(
     if record_update.enabled is not None:
         record.enabled = record_update.enabled
     
+    # Get zone to determine network
+    result = await db.execute(
+        select(DnsZoneDB).where(DnsZoneDB.id == record.zone_id)
+    )
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    
     await db.commit()
     await db.refresh(record)
+    
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, zone.network, username, "update",
+        {"record_id": record_id, "record_name": record.name, "zone_id": record.zone_id}
+    )
     
     return DnsRecord.model_validate(record)
 
@@ -536,7 +698,7 @@ async def update_record(
 @router.delete("/records/{record_id}")
 async def delete_record(
     record_id: int,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
     """Delete a DNS record
@@ -558,8 +720,25 @@ async def delete_record(
             detail=f"Record {record_id} not found"
         )
     
+    # Get zone to determine network before deleting
+    result = await db.execute(
+        select(DnsZoneDB).where(DnsZoneDB.id == record.zone_id)
+    )
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    
+    network = zone.network
+    record_name = record.name
+    
     await db.delete(record)
     await db.commit()
+    
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, network, username, "delete",
+        {"record_id": record_id, "record_name": record_name, "zone_id": record.zone_id}
+    )
     
     return {"message": f"Record {record_id} deleted successfully"}
 
@@ -661,4 +840,103 @@ async def control_dns_service(
             status_code=500,
             detail=f"Error while trying to {action} service {service_name}: {str(e)}"
         )
+
+
+@router.post("/revert/{network}/{history_id}")
+async def revert_dns_config(
+    network: str,
+    history_id: int,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Revert DNS configuration to a previous state
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        history_id: History record ID to revert to
+        
+    Returns:
+        Success message
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    # Get history record
+    result = await db.execute(
+        select(DnsConfigHistoryDB)
+        .where(
+            DnsConfigHistoryDB.id == history_id,
+            DnsConfigHistoryDB.network == network
+        )
+    )
+    history = result.scalar_one_or_none()
+    
+    if not history:
+        raise HTTPException(
+            status_code=404,
+            detail=f"History record {history_id} not found for network {network}"
+        )
+    
+    if history.status == 'reverted':
+        raise HTTPException(
+            status_code=400,
+            detail=f"History record {history_id} has already been reverted"
+        )
+    
+    # Restore configuration from snapshot
+    config_snapshot = history.config_snapshot
+    
+    # Delete all existing zones and records for this network
+    result = await db.execute(
+        select(DnsZoneDB).where(DnsZoneDB.network == network)
+    )
+    zones = result.scalars().all()
+    for zone in zones:
+        await db.delete(zone)
+    
+    # Restore zones and records from snapshot
+    for zone_data in config_snapshot.get('zones', []):
+        db_zone = DnsZoneDB(
+            id=zone_data['id'],
+            name=zone_data['name'],
+            network=network,
+            authoritative=zone_data['authoritative'],
+            forward_to=zone_data.get('forward_to'),
+            delegate_to=zone_data.get('delegate_to'),
+            enabled=zone_data['enabled']
+        )
+        db.add(db_zone)
+        await db.flush()  # Flush to get zone ID
+        
+        # Restore records
+        for record_data in zone_data.get('records', []):
+            db_record = DnsRecordDB(
+                id=record_data['id'],
+                zone_id=db_zone.id,
+                name=record_data['name'],
+                type=record_data['type'],
+                value=record_data['value'],
+                comment=record_data.get('comment'),
+                enabled=record_data['enabled']
+            )
+            db.add(db_record)
+    
+    # Mark history record as reverted
+    history.status = 'reverted'
+    history.reverted_by = username
+    history.reverted_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    # Write config and reload service
+    await _write_dns_config_and_reload(
+        db, network, username, "revert",
+        {"history_id": history_id, "reverted_from": history.change_type}
+    )
+    
+    return {
+        "message": f"DNS configuration reverted to history record {history_id}",
+        "network": network,
+        "history_id": history_id
+    }
 

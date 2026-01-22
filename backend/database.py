@@ -450,6 +450,50 @@ class DhcpReservationDB(Base):
         Index('idx_dhcp_reservations_network_ip', 'network_id', 'ip_address', unique=True, postgresql_using='btree'),
     )
 
+
+class DnsConfigHistoryDB(Base):
+    """DNS configuration change history"""
+    __tablename__ = "dns_config_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    network = Column(String(50), nullable=False)  # "homelab" or "lan"
+    change_type = Column(String(20), nullable=False)  # "create", "update", "delete"
+    changed_by = Column(String(255), nullable=False)  # Username who made the change
+    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True)
+    config_snapshot = Column(JSONB, nullable=False)  # Full DNS configuration at time of change
+    status = Column(String(20), default='active', nullable=False, index=True)  # "active" or "reverted"
+    reverted_by = Column(String(255))  # Username who reverted (if reverted)
+    reverted_at = Column(DateTime(timezone=True))  # When reverted (if reverted)
+    change_details = Column(JSONB)  # Additional details about what changed
+    
+    __table_args__ = (
+        Index('idx_dns_config_history_network_timestamp', 'network', 'timestamp', postgresql_using='btree', postgresql_ops={'timestamp': 'DESC'}),
+        Index('idx_dns_config_history_timestamp', 'timestamp', postgresql_using='btree'),
+        Index('idx_dns_config_history_status', 'status', postgresql_using='btree'),
+    )
+
+
+class DhcpConfigHistoryDB(Base):
+    """DHCP configuration change history"""
+    __tablename__ = "dhcp_config_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    network = Column(String(50), nullable=False)  # "homelab" or "lan"
+    change_type = Column(String(20), nullable=False)  # "create", "update", "delete"
+    changed_by = Column(String(255), nullable=False)  # Username who made the change
+    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True)
+    config_snapshot = Column(JSONB, nullable=False)  # Full DHCP configuration at time of change
+    status = Column(String(20), default='active', nullable=False, index=True)  # "active" or "reverted"
+    reverted_by = Column(String(255))  # Username who reverted (if reverted)
+    reverted_at = Column(DateTime(timezone=True))  # When reverted (if reverted)
+    change_details = Column(JSONB)  # Additional details about what changed
+    
+    __table_args__ = (
+        Index('idx_dhcp_config_history_network_timestamp', 'network', 'timestamp', postgresql_using='btree', postgresql_ops={'timestamp': 'DESC'}),
+        Index('idx_dhcp_config_history_timestamp', 'timestamp', postgresql_using='btree'),
+        Index('idx_dhcp_config_history_status', 'status', postgresql_using='btree'),
+    )
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for getting async database session"""
     async with AsyncSessionLocal() as session:
@@ -1071,4 +1115,26 @@ async def _apply_schema_updates(conn):
                 FOR EACH ROW EXECUTE PROCEDURE set_updated_at()
             """)
         )
+    
+    # Migration 008: DNS and DHCP configuration change history
+    result = await conn.execute(
+        text("""
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_name = 'dns_config_history'
+        """)
+    )
+    has_dns_history = result.scalar() is not None
+    
+    if not has_dns_history:
+        # Read and execute the migration SQL file
+        import os
+        migration_path = os.path.join(os.path.dirname(__file__), 'migrations', '008_dns_dhcp_history.sql')
+        if os.path.exists(migration_path):
+            with open(migration_path, 'r') as f:
+                migration_sql = f.read()
+            # Execute the migration (it uses IF NOT EXISTS, so safe to run multiple times)
+            await conn.execute(text(migration_sql))
+            print("Applied migration 008: DNS and DHCP configuration history tables")
+        else:
+            print(f"Warning: Migration file not found at {migration_path}")
 
