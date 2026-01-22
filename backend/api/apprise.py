@@ -14,6 +14,7 @@ from ..models import AppriseService, AppriseServiceCreate, AppriseServiceUpdate,
 from ..utils.apprise import (
     is_apprise_enabled,
     send_notification,
+    send_notification_async,
     get_configured_services,
     get_raw_service_urls,
     load_apprise_config,
@@ -71,12 +72,14 @@ async def get_apprise_status(
 @router.post("/notify", response_model=NotificationResponse)
 async def send_notification_endpoint(
     request: NotificationRequest,
-    _: str = Depends(get_current_user)
+    _: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ) -> NotificationResponse:
     """Send a notification using configured Apprise services
     
     Args:
         request: Notification request with body, optional title and type
+        db: Database session
         
     Returns:
         NotificationResponse: Success status and message
@@ -88,7 +91,8 @@ async def send_notification_endpoint(
         )
     
     try:
-        success, error = send_notification(
+        success, error = await send_notification_async(
+            session=db,
             body=request.body,
             title=request.title,
             notification_type=request.notification_type

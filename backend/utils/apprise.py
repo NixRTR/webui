@@ -209,11 +209,23 @@ def url_encode_password_in_url(url: str) -> str:
                     encoded_parts.append('')
             
             # Reconstruct path with slashes (slashes are delimiters, not encoded)
+            # Filter out empty parts at the beginning to avoid double slashes
+            # e.g., ['', 'token'] should become '/token', not '//token'
+            filtered_parts = []
+            skip_empty = True
+            for part in encoded_parts:
+                if part:
+                    skip_empty = False
+                    filtered_parts.append(part)
+                elif not skip_empty:
+                    # Preserve empty parts in the middle/end, but skip leading empty parts
+                    filtered_parts.append(part)
+            
             # Preserve leading slash if original had one
             if parsed.path.startswith('/'):
-                encoded_path = '/' + '/'.join(encoded_parts)
+                encoded_path = '/' + '/'.join(filtered_parts)
             else:
-                encoded_path = '/'.join(encoded_parts)
+                encoded_path = '/'.join(filtered_parts)
             
             # Ensure trailing slash is preserved if original had one
             if parsed.path.endswith('/') and not encoded_path.endswith('/'):
