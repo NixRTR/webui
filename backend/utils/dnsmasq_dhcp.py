@@ -1,15 +1,16 @@
 """
-Generate dnsmasq DHCP configuration from database records
+Generate dnsmasq DHCP configuration from config files (source of truth)
+Merges router-config.nix with WebUI-managed config files
 """
 import logging
 import os
 import re
 from typing import Optional
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from ..database import DhcpNetworkDB, DhcpReservationDB
 from ..config import settings
+from .config_reader import (
+    get_dhcp_networks_from_config,
+    get_dhcp_reservations_from_config
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,12 @@ def _get_router_ip_from_config(network: str) -> Optional[str]:
         return None
 
 
-async def generate_dnsmasq_dhcp_config(session: AsyncSession, network: str) -> Optional[str]:
-    """Generate dnsmasq DHCP configuration from database records
+def generate_dnsmasq_dhcp_config(network: str) -> Optional[str]:
+    """Generate dnsmasq DHCP configuration from config files (source of truth)
+    
+    Reads from router-config.nix and webui-dhcp.conf, merging them.
     
     Args:
-        session: Database session
         network: Network name ("homelab" or "lan")
         
     Returns:
@@ -66,15 +68,11 @@ async def generate_dnsmasq_dhcp_config(session: AsyncSession, network: str) -> O
     if network not in ['homelab', 'lan']:
         raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
     
-    # Get DHCP network configuration
-    result = await session.execute(
-        select(DhcpNetworkDB)
-        .where(DhcpNetworkDB.network == network)
-        .limit(1)
-    )
-    dhcp_network = result.scalar_one_or_none()
+    # Get DHCP network configuration from config files
+    networks = get_dhcp_networks_from_config()
+    dhcp_network = next((n for n in networks if n['network'] == network), None)
     
-    if not dhcp_network or not dhcp_network.enabled:
+    if not dhcp_network or not dhcp_network.get('enabled', True):
         logger.debug(f"DHCP disabled or not configured for network {network}")
         return None
     
@@ -91,37 +89,30 @@ async def generate_dnsmasq_dhcp_config(session: AsyncSession, network: str) -> O
         logger.warning(f"Could not read router IP from config, using fallback: {router_ip}")
     
     # DHCP range
-    lines.append(f"dhcp-range={bridge},{dhcp_network.start},{dhcp_network.end},{dhcp_network.lease_time}")
+    lines.append(f"dhcp-range={bridge},{dhcp_network['start']},{dhcp_network['end']},{dhcp_network['lease_time']}")
     
     # DHCP option 3: Router (gateway)
     lines.append(f"dhcp-option={bridge},3,{router_ip}")
     
     # DHCP option 6: DNS servers
-    dns_servers = dhcp_network.dns_servers or [router_ip]
+    dns_servers = dhcp_network.get('dns_servers') or [router_ip]
     dns_servers_str = ",".join(str(ip) for ip in dns_servers)
     lines.append(f"dhcp-option={bridge},6,{dns_servers_str}")
     
     # DHCP option 15: Domain name (if dynamic domain is set)
-    if dhcp_network.dynamic_domain:
-        lines.append(f"dhcp-option={bridge},15,{dhcp_network.dynamic_domain}")
+    if dhcp_network.get('dynamic_domain'):
+        lines.append(f"dhcp-option={bridge},15,{dhcp_network['dynamic_domain']}")
     
     # DHCP authoritative
     lines.append("dhcp-authoritative")
     
     # Static reservations (dhcp-host=MAC,hostname,IP)
-    result = await session.execute(
-        select(DhcpReservationDB)
-        .join(DhcpNetworkDB, DhcpReservationDB.network_id == DhcpNetworkDB.id)
-        .where(
-            DhcpNetworkDB.network == network,
-            DhcpReservationDB.enabled == True
-        )
-        .order_by(DhcpReservationDB.hostname)
-    )
-    reservations = result.scalars().all()
+    reservations = get_dhcp_reservations_from_config(network)
     
     for reservation in reservations:
-        comment = f"  # {reservation.comment}" if reservation.comment else ""
-        lines.append(f"dhcp-host={reservation.hw_address},{reservation.hostname},{reservation.ip_address}{comment}")
+        if not reservation.get('enabled', True):
+            continue
+        comment = f"  # {reservation['comment']}" if reservation.get('comment') else ""
+        lines.append(f"dhcp-host={reservation['hw_address']},{reservation['hostname']},{reservation['ip_address']}{comment}")
     
     return "\n".join(lines)

@@ -19,10 +19,15 @@ from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
 from ..utils.dnsmasq_dns import generate_dnsmasq_dns_config
 from ..utils.config_writer import write_dns_config
-from ..utils.dnsmasq_parser import sync_dnsmasq_config_to_database
-from ..utils.dns import migrate_dns_config_to_database
+from ..utils.config_reader import (
+    get_dns_zones_from_config,
+    get_dns_records_from_config
+)
+from ..utils.config_manager import update_dns_record_in_config
+from ..utils.dnsmasq_parser import parse_dnsmasq_config_file
 import json
 from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,8 @@ async def _save_dns_config_history(
 ) -> None:
     """Save DNS configuration change to history
     
+    Reads current config from files and saves snapshot to history database.
+    
     Args:
         db: Database session
         network: Network name
@@ -51,46 +58,42 @@ async def _save_dns_config_history(
         changed_by: Username who made the change
         change_details: Additional details about the change
     """
-    # Get current DNS configuration snapshot
-    result = await db.execute(
-        select(DnsZoneDB)
-        .where(DnsZoneDB.network == network)
-        .order_by(DnsZoneDB.name)
-    )
-    zones = result.scalars().all()
+    # Get current DNS configuration snapshot from config files
+    zones = get_dns_zones_from_config(network)
+    all_records = get_dns_records_from_config(network)
     
     # Build config snapshot
     config_snapshot = {
         'zones': []
     }
     
+    # Group records by zone
+    records_by_zone = {}
+    for record in all_records:
+        zone_name = record['zone_name']
+        if zone_name not in records_by_zone:
+            records_by_zone[zone_name] = []
+        records_by_zone[zone_name].append(record)
+    
+    # Build zone snapshots
     for zone in zones:
+        zone_name = zone['name']
         zone_data = {
-            'id': zone.id,
-            'name': zone.name,
-            'authoritative': zone.authoritative,
-            'forward_to': zone.forward_to,
-            'delegate_to': zone.delegate_to,
-            'enabled': zone.enabled,
+            'name': zone_name,
+            'authoritative': zone.get('authoritative', True),
+            'enabled': zone.get('enabled', True),
             'records': []
         }
         
         # Get records for this zone
-        result = await db.execute(
-            select(DnsRecordDB)
-            .where(DnsRecordDB.zone_id == zone.id)
-            .order_by(DnsRecordDB.name)
-        )
-        records = result.scalars().all()
-        
-        for record in records:
+        zone_records = records_by_zone.get(zone_name, [])
+        for record in zone_records:
             zone_data['records'].append({
-                'id': record.id,
-                'name': record.name,
-                'type': record.type,
-                'value': record.value,
-                'comment': record.comment,
-                'enabled': record.enabled,
+                'name': record['name'],
+                'type': record['type'],
+                'value': record['value'],
+                'comment': record.get('comment', ''),
+                'enabled': record.get('enabled', True),
             })
         
         config_snapshot['zones'].append(zone_data)
@@ -114,21 +117,21 @@ async def _write_dns_config_and_reload(
     change_type: str,
     change_details: dict
 ) -> None:
-    """Generate DNS config, write it, and reload dnsmasq service
+    """Generate DNS config from files, write it, and reload dnsmasq service
     
     Args:
-        db: Database session
+        db: Database session (for history tracking only)
         network: Network name
         changed_by: Username who made the change
         change_type: Type of change
         change_details: Additional details about the change
     """
     try:
-        # Save history
+        # Save history (before writing, to capture current state)
         await _save_dns_config_history(db, network, change_type, changed_by, change_details)
         
-        # Generate config
-        config_content = await generate_dnsmasq_dns_config(db, network)
+        # Generate config from files (router-config.nix + webui-dns.conf)
+        config_content = generate_dnsmasq_dns_config(network)
         
         # Write config via helper service
         write_dns_config(network, config_content)
@@ -141,7 +144,6 @@ async def _write_dns_config_and_reload(
     except Exception as e:
         logger.error(f"Failed to write DNS config for network {network}: {e}", exc_info=True)
         # Don't raise - allow the API call to succeed even if config write fails
-        # The database change is already committed
 
 
 def _find_sudo() -> str:
@@ -256,7 +258,7 @@ async def get_zones(
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> List[DnsZone]:
-    """Get list of DNS zones
+    """Get list of DNS zones from config files (source of truth)
     
     Args:
         network: Optional filter by network ("homelab" or "lan")
@@ -264,17 +266,20 @@ async def get_zones(
     Returns:
         List of DNS zones
     """
-    query = select(DnsZoneDB)
-    if network:
-        if network not in ['homelab', 'lan']:
-            raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
-        query = query.where(DnsZoneDB.network == network)
+    all_zones = []
     
-    query = query.order_by(DnsZoneDB.network, DnsZoneDB.name)
-    result = await db.execute(query)
-    zones = result.scalars().all()
+    networks = ['homelab', 'lan'] if not network else [network]
+    if network and network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    return [DnsZone.model_validate(zone) for zone in zones]
+    for net in networks:
+        zones = get_dns_zones_from_config(net)
+        for zone_dict in zones:
+            # Convert to DnsZone model (assigning temporary IDs for API compatibility)
+            zone_dict['id'] = hash(f"{net}:{zone_dict['name']}") % (2**31)  # Temporary ID
+            all_zones.append(DnsZone.model_validate(zone_dict))
+    
+    return sorted(all_zones, key=lambda z: (z.network, z.name))
 
 
 @router.post("/zones", response_model=DnsZone)
@@ -476,66 +481,65 @@ async def delete_zone(
     return {"message": f"Zone {zone_id} deleted successfully"}
 
 
-@router.get("/zones/{zone_id}/records", response_model=List[DnsRecord])
+@router.get("/zones/{zone_name}/records", response_model=List[DnsRecord])
 async def get_zone_records(
-    zone_id: int,
+    zone_name: str,
+    network: str,
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> List[DnsRecord]:
-    """Get all records for a zone
+    """Get all records for a zone from config files
     
     Args:
-        zone_id: Zone ID
+        zone_name: Zone name (e.g., "jeandr.net")
+        network: Network name ("homelab" or "lan")
         
     Returns:
         List of DNS records
     """
-    # Verify zone exists
-    result = await db.execute(
-        select(DnsZoneDB).where(DnsZoneDB.id == zone_id)
-    )
-    zone = result.scalar_one_or_none()
-    if not zone:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Zone {zone_id} not found"
-        )
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    result = await db.execute(
-        select(DnsRecordDB)
-        .where(DnsRecordDB.zone_id == zone_id)
-        .order_by(DnsRecordDB.type, DnsRecordDB.name)
-    )
-    records = result.scalars().all()
+    records = get_dns_records_from_config(network, zone_name=zone_name)
     
-    return [DnsRecord.model_validate(record) for record in records]
+    result = []
+    for record_dict in records:
+        # Convert to DnsRecord model (assigning temporary IDs)
+        record_dict['id'] = hash(f"{network}:{zone_name}:{record_dict['name']}") % (2**31)
+        record_dict['zone_id'] = hash(f"{network}:{zone_name}") % (2**31)  # Temporary zone_id
+        result.append(DnsRecord.model_validate(record_dict))
+    
+    return sorted(result, key=lambda r: (r.type, r.name))
 
 
-@router.post("/zones/{zone_id}/records", response_model=DnsRecord)
+@router.post("/zones/{zone_name}/records", response_model=DnsRecord)
 async def create_record(
-    zone_id: int,
+    zone_name: str,
+    network: str,
     record: DnsRecordCreate,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DnsRecord:
-    """Create a new DNS record in a zone
+    """Create a new DNS record in a zone (writes to config file)
     
     Args:
-        zone_id: Zone ID
-        record: Record creation data (zone_id in record is ignored, uses path param)
+        zone_name: Zone name (e.g., "jeandr.net")
+        network: Network name ("homelab" or "lan")
+        record: Record creation data
         
     Returns:
         Created record
     """
-    # Verify zone exists
-    result = await db.execute(
-        select(DnsZoneDB).where(DnsZoneDB.id == zone_id)
-    )
-    zone = result.scalar_one_or_none()
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    # Verify zone exists in config
+    zones = get_dns_zones_from_config(network)
+    zone = next((z for z in zones if z['name'] == zone_name), None)
     if not zone:
         raise HTTPException(
             status_code=404,
-            detail=f"Zone {zone_id} not found"
+            detail=f"Zone {zone_name} not found for network {network}"
         )
     
     # Validate record type
@@ -556,26 +560,36 @@ async def create_record(
                 detail="A record value must be a valid IPv4 address"
             )
     
-    db_record = DnsRecordDB(
-        zone_id=zone_id,
-        name=record.name,
-        type=record.type,
-        value=record.value,
-        comment=record.comment,
-        enabled=record.enabled,
-        original_config_path=record.original_config_path
-    )
-    db.add(db_record)
-    await db.commit()
-    await db.refresh(db_record)
+    # Update config file
+    try:
+        update_dns_record_in_config(
+            network=network,
+            operation="add",
+            record_name=record.name,
+            record_type=record.type,
+            record_value=record.value,
+            record_comment=record.comment,
+            zone_name=zone_name
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
-    # Write config and reload service
+    # Write config and reload service, track history
     await _write_dns_config_and_reload(
-        db, zone.network, username, "create",
-        {"record_id": db_record.id, "record_name": record.name, "zone_id": zone_id}
+        db, network, username, "create",
+        {"record_name": record.name, "zone_name": zone_name}
     )
     
-    return DnsRecord.model_validate(db_record)
+    # Return created record (read back from config)
+    records = get_dns_records_from_config(network, zone_name=zone_name)
+    created = next((r for r in records if r['name'] == record.name), None)
+    if not created:
+        raise HTTPException(status_code=500, detail="Record created but not found in config")
+    
+    # Convert to DnsRecord model
+    created['id'] = hash(f"{network}:{zone_name}:{record.name}") % (2**31)
+    created['zone_id'] = hash(f"{network}:{zone_name}") % (2**31)
+    return DnsRecord.model_validate(created)
 
 
 @router.get("/records/{record_id}", response_model=DnsRecord)

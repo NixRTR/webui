@@ -20,7 +20,11 @@ from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
 from ..utils.dnsmasq_dhcp import generate_dnsmasq_dhcp_config
 from ..utils.config_writer import write_dhcp_config
-from ..utils.dhcp import migrate_dhcp_config_to_database
+from ..utils.config_reader import (
+    get_dhcp_networks_from_config,
+    get_dhcp_reservations_from_config
+)
+from ..utils.config_manager import update_dhcp_reservation_in_config
 import json
 from datetime import datetime
 
@@ -96,6 +100,8 @@ async def _save_dhcp_config_history(
 ) -> None:
     """Save DHCP configuration change to history
     
+    Reads current config from files and saves snapshot to history database.
+    
     Args:
         db: Database session
         network: Network name
@@ -103,13 +109,10 @@ async def _save_dhcp_config_history(
         changed_by: Username who made the change
         change_details: Additional details about the change
     """
-    # Get current DHCP configuration snapshot
-    result = await db.execute(
-        select(DhcpNetworkDB)
-        .where(DhcpNetworkDB.network == network)
-        .limit(1)
-    )
-    dhcp_network = result.scalar_one_or_none()
+    # Get current DHCP configuration snapshot from config files
+    networks = get_dhcp_networks_from_config()
+    dhcp_network = next((n for n in networks if n['network'] == network), None)
+    reservations = get_dhcp_reservations_from_config(network)
     
     # Build config snapshot
     config_snapshot = {
@@ -119,32 +122,22 @@ async def _save_dhcp_config_history(
     
     if dhcp_network:
         config_snapshot['network'] = {
-            'id': dhcp_network.id,
-            'network': dhcp_network.network,
-            'enabled': dhcp_network.enabled,
-            'start': str(dhcp_network.start),
-            'end': str(dhcp_network.end),
-            'lease_time': dhcp_network.lease_time,
-            'dns_servers': [str(ip) for ip in (dhcp_network.dns_servers or [])],
-            'dynamic_domain': dhcp_network.dynamic_domain,
+            'network': dhcp_network['network'],
+            'enabled': dhcp_network.get('enabled', True),
+            'start': dhcp_network.get('start', ''),
+            'end': dhcp_network.get('end', ''),
+            'lease_time': dhcp_network.get('lease_time', '1h'),
+            'dns_servers': dhcp_network.get('dns_servers', []),
+            'dynamic_domain': dhcp_network.get('dynamic_domain', ''),
         }
-        
-        # Get reservations for this network
-        result = await db.execute(
-            select(DhcpReservationDB)
-            .where(DhcpReservationDB.network_id == dhcp_network.id)
-            .order_by(DhcpReservationDB.hostname)
-        )
-        reservations = result.scalars().all()
         
         for reservation in reservations:
             config_snapshot['reservations'].append({
-                'id': reservation.id,
-                'hostname': reservation.hostname,
-                'hw_address': str(reservation.hw_address),
-                'ip_address': str(reservation.ip_address),
-                'comment': reservation.comment,
-                'enabled': reservation.enabled,
+                'hostname': reservation['hostname'],
+                'hw_address': reservation['hw_address'],
+                'ip_address': reservation['ip_address'],
+                'comment': reservation.get('comment', ''),
+                'enabled': reservation.get('enabled', True),
             })
     
     # Save to history
@@ -166,27 +159,27 @@ async def _write_dhcp_config_and_reload(
     change_type: str,
     change_details: dict
 ) -> None:
-    """Generate DHCP config, write it, and reload dnsmasq service
+    """Generate DHCP config from files, write it, and reload dnsmasq service
     
     Args:
-        db: Database session
+        db: Database session (for history tracking only)
         network: Network name
         changed_by: Username who made the change
         change_type: Type of change
         change_details: Additional details about the change
     """
     try:
-        # Save history
+        # Save history (before writing, to capture current state)
         await _save_dhcp_config_history(db, network, change_type, changed_by, change_details)
         
-        # Generate config
-        config_content = await generate_dnsmasq_dhcp_config(db, network)
+        # Generate config from files (router-config.nix + webui-dhcp.conf)
+        config_content = generate_dnsmasq_dhcp_config(network)
         
         # Write config via helper service (can be None if DHCP disabled)
         if config_content:
             write_dhcp_config(network, config_content)
         else:
-            # DHCP disabled - write empty file or delete existing
+            # DHCP disabled - write empty file
             write_dhcp_config(network, "# DHCP disabled\n")
         
         # Reload dnsmasq service
@@ -197,7 +190,6 @@ async def _write_dhcp_config_and_reload(
     except Exception as e:
         logger.error(f"Failed to write DHCP config for network {network}: {e}", exc_info=True)
         # Don't raise - allow the API call to succeed even if config write fails
-        # The database change is already committed
 
 
 @router.get("/networks", response_model=List[DhcpNetwork])
@@ -206,7 +198,7 @@ async def get_networks(
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> List[DhcpNetwork]:
-    """Get list of DHCP networks
+    """Get list of DHCP networks from config files (source of truth)
     
     Args:
         network: Optional filter by network ("homelab" or "lan")
@@ -214,31 +206,28 @@ async def get_networks(
     Returns:
         List of DHCP networks
     """
-    query = select(DhcpNetworkDB)
+    networks = get_dhcp_networks_from_config()
+    
     if network:
         if network not in ['homelab', 'lan']:
             raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
-        query = query.where(DhcpNetworkDB.network == network)
+        networks = [n for n in networks if n['network'] == network]
     
-    query = query.order_by(DhcpNetworkDB.network)
-    result = await db.execute(query)
-    networks = result.scalars().all()
-    
-    # Convert database models to Pydantic models, converting INET types to strings
+    # Convert to Pydantic models (assigning temporary IDs for API compatibility)
     result_networks = []
     for net in networks:
         net_dict = {
-            'id': net.id,
-            'network': net.network,
-            'enabled': net.enabled,
-            'start': str(net.start) if net.start else '',
-            'end': str(net.end) if net.end else '',
-            'lease_time': net.lease_time,
-            'dns_servers': [str(ip) for ip in net.dns_servers] if net.dns_servers else None,
-            'dynamic_domain': net.dynamic_domain,
-            'original_config_path': net.original_config_path,
-            'created_at': net.created_at,
-            'updated_at': net.updated_at,
+            'id': hash(f"dhcp:{net['network']}") % (2**31),  # Temporary ID
+            'network': net['network'],
+            'enabled': net.get('enabled', True),
+            'start': net.get('start', ''),
+            'end': net.get('end', ''),
+            'lease_time': net.get('lease_time', '1h'),
+            'dns_servers': net.get('dns_servers', []),
+            'dynamic_domain': net.get('dynamic_domain', ''),
+            'original_config_path': None,
+            'created_at': None,
+            'updated_at': None,
         }
         result_networks.append(DhcpNetwork.model_validate(net_dict))
     
