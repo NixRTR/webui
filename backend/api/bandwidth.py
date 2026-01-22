@@ -505,7 +505,7 @@ async def get_current_client_bandwidth(
     current_data = collect_client_bandwidth()
     
     # Get device information for hostnames
-        dhcp_leases = parse_dnsmasq_leases()
+    dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
     # Filter to IPv4 only
     devices = [d for d in devices if _is_ipv4(d.ip_address)]
