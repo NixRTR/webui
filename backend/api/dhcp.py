@@ -990,3 +990,50 @@ async def revert_dhcp_config(
         "history_id": history_id
     }
 
+
+@router.post("/sync-config/{network}")
+async def sync_dhcp_config(
+    network: str,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Sync DHCP configuration from database to dnsmasq config files
+    
+    This endpoint writes the current database state to the dnsmasq config files.
+    Useful for syncing existing records that were added before the config writer was implemented.
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        Success message
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    try:
+        # Write config and reload service (without creating a history entry for sync)
+        config_content = await generate_dnsmasq_dhcp_config(db, network)
+        if config_content:
+            write_dhcp_config(network, config_content)
+        else:
+            # DHCP disabled - write empty file
+            write_dhcp_config(network, "# DHCP disabled\n")
+        
+        # Reload dnsmasq service
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        _control_service_via_systemctl(service_name, "reload")
+        
+        logger.info(f"DHCP config synced for network {network}")
+        
+        return {
+            "message": f"DHCP configuration synced for network {network}",
+            "network": network
+        }
+    except Exception as e:
+        logger.error(f"Failed to sync DHCP config for network {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync DHCP config: {str(e)}"
+        )
+

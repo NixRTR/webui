@@ -940,3 +940,46 @@ async def revert_dns_config(
         "history_id": history_id
     }
 
+
+@router.post("/sync-config/{network}")
+async def sync_dns_config(
+    network: str,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Sync DNS configuration from database to dnsmasq config files
+    
+    This endpoint writes the current database state to the dnsmasq config files.
+    Useful for syncing existing records that were added before the config writer was implemented.
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        Success message
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    try:
+        # Write config and reload service (without creating a history entry for sync)
+        config_content = await generate_dnsmasq_dns_config(db, network)
+        write_dns_config(network, config_content)
+        
+        # Reload dnsmasq service
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        _control_service_via_systemctl(service_name, "reload")
+        
+        logger.info(f"DNS config synced for network {network}")
+        
+        return {
+            "message": f"DNS configuration synced for network {network}",
+            "network": network
+        }
+    except Exception as e:
+        logger.error(f"Failed to sync DNS config for network {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync DNS config: {str(e)}"
+        )
+
