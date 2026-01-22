@@ -489,15 +489,64 @@ class ConnectionManager:
                     if leases_to_delete:
                         await session.flush()  # Ensure deletions are visible
                     
+                    # Before updating, check for any remaining IP conflicts and delete them
+                    # This handles cases where a conflicting lease wasn't caught in the initial check
+                    for existing_lease, update_data in leases_to_update:
+                        if 'ip_address' in update_data:
+                            # Check if this IP is already assigned to a different lease
+                            conflict_check = await session.execute(
+                                select(DHCPLeaseDB).where(
+                                    DHCPLeaseDB.network == existing_lease.network,
+                                    DHCPLeaseDB.ip_address == update_data['ip_address'],
+                                    DHCPLeaseDB.id != existing_lease.id
+                                )
+                            )
+                            conflicting_lease = conflict_check.scalar_one_or_none()
+                            if conflicting_lease:
+                                # Delete the conflicting lease
+                                await session.delete(conflicting_lease)
+                    
+                    # Flush deletions again to ensure they're visible
+                    await session.flush()
+                    
                     # Batch update existing leases using SQLAlchemy update statements
                     from sqlalchemy import update
                     if leases_to_update:
                         for existing_lease, update_data in leases_to_update:
-                            await session.execute(
-                                update(DHCPLeaseDB)
-                                .where(DHCPLeaseDB.id == existing_lease.id)
-                                .values(**update_data)
-                            )
+                            try:
+                                await session.execute(
+                                    update(DHCPLeaseDB)
+                                    .where(DHCPLeaseDB.id == existing_lease.id)
+                                    .values(**update_data)
+                                )
+                            except Exception as update_error:
+                                # If we still get a constraint violation, try to delete the conflicting lease and retry
+                                if "UniqueViolationError" in str(type(update_error)) or "duplicate key" in str(update_error).lower():
+                                    if 'ip_address' in update_data:
+                                        # Find and delete the conflicting lease
+                                        conflict_check = await session.execute(
+                                            select(DHCPLeaseDB).where(
+                                                DHCPLeaseDB.network == existing_lease.network,
+                                                DHCPLeaseDB.ip_address == update_data['ip_address'],
+                                                DHCPLeaseDB.id != existing_lease.id
+                                            )
+                                        )
+                                        conflicting_lease = conflict_check.scalar_one_or_none()
+                                        if conflicting_lease:
+                                            await session.delete(conflicting_lease)
+                                            await session.flush()
+                                            # Retry the update
+                                            await session.execute(
+                                                update(DHCPLeaseDB)
+                                                .where(DHCPLeaseDB.id == existing_lease.id)
+                                                .values(**update_data)
+                                            )
+                                        else:
+                                            # Re-raise if we can't resolve it
+                                            raise
+                                else:
+                                    # Re-raise non-constraint errors
+                                    raise
                     
                     # Bulk insert new leases
                     if leases_to_insert:
