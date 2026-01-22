@@ -549,10 +549,64 @@ class ConnectionManager:
                                     raise
                     
                     # Bulk insert new leases
-                    if leases_to_insert:
-                        await session.execute(
-                            insert(DHCPLeaseDB).values(leases_to_insert)
+                    # First, check for any IP conflicts and delete them
+                    for insert_data in leases_to_insert:
+                        conflict_check = await session.execute(
+                            select(DHCPLeaseDB).where(
+                                DHCPLeaseDB.network == insert_data['network'],
+                                DHCPLeaseDB.ip_address == insert_data['ip_address']
+                            )
                         )
+                        conflicting_lease = conflict_check.scalar_one_or_none()
+                        if conflicting_lease:
+                            # Delete the conflicting lease - the new one will replace it
+                            await session.delete(conflicting_lease)
+                    
+                    # Flush deletions before inserts
+                    if leases_to_insert:
+                        await session.flush()
+                    
+                    # Now insert the new leases
+                    if leases_to_insert:
+                        try:
+                            await session.execute(
+                                insert(DHCPLeaseDB).values(leases_to_insert)
+                            )
+                        except Exception as insert_error:
+                            # If we still get a constraint violation, handle it per-lease
+                            if "UniqueViolationError" in str(type(insert_error)) or "duplicate key" in str(insert_error).lower():
+                                # Insert leases one by one, handling conflicts individually
+                                for insert_data in leases_to_insert:
+                                    try:
+                                        await session.execute(
+                                            insert(DHCPLeaseDB).values([insert_data])
+                                        )
+                                    except Exception as single_insert_error:
+                                        if "UniqueViolationError" in str(type(single_insert_error)) or "duplicate key" in str(single_insert_error).lower():
+                                            # Find and delete the conflicting lease, then retry
+                                            conflict_check = await session.execute(
+                                                select(DHCPLeaseDB).where(
+                                                    DHCPLeaseDB.network == insert_data['network'],
+                                                    DHCPLeaseDB.ip_address == insert_data['ip_address']
+                                                )
+                                            )
+                                            conflicting_lease = conflict_check.scalar_one_or_none()
+                                            if conflicting_lease:
+                                                await session.delete(conflicting_lease)
+                                                await session.flush()
+                                                # Retry the insert
+                                                await session.execute(
+                                                    insert(DHCPLeaseDB).values([insert_data])
+                                                )
+                                            else:
+                                                # Log but don't fail - might be a race condition
+                                                print(f"Warning: Could not resolve conflict for {insert_data['network']}/{insert_data['ip_address']}")
+                                        else:
+                                            # Re-raise non-constraint errors
+                                            raise
+                            else:
+                                # Re-raise non-constraint errors
+                                raise
                 
                 # Store disk I/O metrics (bulk insert)
                 if disk_io:
