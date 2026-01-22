@@ -16,7 +16,7 @@ from .models import MetricsSnapshot, SystemMetrics, InterfaceStats, ServiceStatu
 from .database import AsyncSessionLocal, SystemMetricsDB, InterfaceStatsDB, ServiceStatusDB, DHCPLeaseDB, DiskIOMetricsDB, TemperatureMetricsDB, ClientBandwidthStatsDB, ClientConnectionStatsDB
 from .collectors.system import collect_system_metrics, collect_disk_io, collect_temperatures, get_io_wait_percent
 from .collectors.network import collect_interface_stats
-from .collectors.dhcp import parse_kea_leases
+from .collectors.dhcp import parse_dnsmasq_leases
 from .collectors.services import collect_service_statuses
 from .collectors.dns import collect_dns_stats
 from .collectors.client_bandwidth import collect_client_bandwidth
@@ -201,7 +201,7 @@ class ConnectionManager:
         temperatures = collectors[4] if not isinstance(collectors[4], Exception) else []
         
         # Collect DHCP leases in executor (file I/O)
-        dhcp_leases = await loop.run_in_executor(self.executor, parse_kea_leases)
+        dhcp_leases = await loop.run_in_executor(self.executor, parse_dnsmasq_leases)
         
         # Collect client bandwidth (with CPU governance built-in) - run in executor
         client_bandwidth = []

@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dhcp", tags=["dhcp"])
 
-# DHCP service name (single service for all networks)
-DHCP_SERVICE_NAME = "kea-dhcp4-server"
+# DHCP service name (dnsmasq provides DHCP per-network)
+# Note: DHCP is now provided by dnsmasq-homelab and dnsmasq-lan services
+# This endpoint controls dnsmasq-homelab as the primary service
+DHCP_SERVICE_NAME = "dnsmasq-homelab"
 
 
 def _control_service_via_systemctl(service_name: str, action: str) -> None:
@@ -34,7 +36,7 @@ def _control_service_via_systemctl(service_name: str, action: str) -> None:
     usage in systemd services.
     
     Args:
-        service_name: Name of the service (e.g., "kea-dhcp4-server.service")
+        service_name: Name of the service (e.g., "dnsmasq-homelab.service")
         action: Action to perform ("start", "stop", "restart", "reload")
         
     Raises:

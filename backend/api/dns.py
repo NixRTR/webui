@@ -24,8 +24,8 @@ router = APIRouter(prefix="/api/dns", tags=["dns"])
 
 # Map network names to systemd service names
 NETWORK_SERVICE_MAP = {
-    'homelab': 'unbound-homelab',
-    'lan': 'unbound-lan',
+    'homelab': 'dnsmasq-homelab',
+    'lan': 'dnsmasq-lan',
 }
 
 
@@ -90,7 +90,7 @@ def _control_service_via_systemctl(service_name: str, action: str) -> None:
     usage in systemd services.
     
     Args:
-        service_name: Name of the service (e.g., "unbound-homelab.service")
+        service_name: Name of the service (e.g., "dnsmasq-homelab.service")
         action: Action to perform ("start", "stop", "restart", "reload")
         
     Raises:

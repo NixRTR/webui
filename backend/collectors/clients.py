@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List
 from ..models import ClientStats
 from .network_devices import discover_network_devices
-from .dhcp import parse_kea_leases
+from .dhcp import parse_dnsmasq_leases
 
 
 def collect_client_stats() -> List[ClientStats]:
@@ -17,7 +17,7 @@ def collect_client_stats() -> List[ClientStats]:
     results = []
     
     # Get DHCP leases
-    dhcp_leases = parse_kea_leases()
+    dhcp_leases = parse_dnsmasq_leases()
     
     # Get all network devices
     devices = discover_network_devices(dhcp_leases)

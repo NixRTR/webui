@@ -191,9 +191,8 @@ export function Dashboard() {
                   </Table.Head>
                   <Table.Body className="divide-y">
                     {[
-                      { name: 'DHCP Server', service: 'kea-dhcp4-server' },
-                      { name: 'Homelab DNS', service: 'unbound-homelab' },
-                      { name: 'LAN DNS', service: 'unbound-lan' },
+                      { name: 'Homelab DNS/DHCP', service: 'dnsmasq-homelab' },
+                      { name: 'LAN DNS/DHCP', service: 'dnsmasq-lan' },
                       { name: 'PPPoE', service: 'pppd-eno1' },
                       { name: 'Dynamic DNS', service: 'linode-dyndns' },
                     ].map(({ name, service: serviceName }) => {

@@ -307,9 +307,9 @@ def get_device_count_by_network() -> Dict[str, Dict[str, int]]:
             'lan': {'total': 5, 'online': 4, 'dhcp': 3}
         }
     """
-    from .dhcp import parse_kea_leases
+    from .dhcp import parse_dnsmasq_leases
     
-    dhcp_leases = parse_kea_leases()
+    dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
     
     counts = {

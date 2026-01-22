@@ -11,9 +11,8 @@ from ..models import ServiceStatus
 # Services to monitor
 # Network Services
 NETWORK_SERVICES = [
-    "kea-dhcp4-server",  # DHCP Server (IPv4)
-    "unbound-homelab",   # Homelab DNS
-    "unbound-lan",       # LAN DNS
+    "dnsmasq-homelab",   # Homelab DNS and DHCP
+    "dnsmasq-lan",       # LAN DNS and DHCP
     "pppd-eno1",         # PPPoE Server
     "linode-dyndns",     # Linode Dynamic DNS
 ]

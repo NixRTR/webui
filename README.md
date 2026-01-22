@@ -20,8 +20,8 @@ A modern web-based monitoring and management interface for the NixOS router, bui
 
 ### Data Collection
 - **psutil** - System metrics (CPU, memory, load, uptime)
-- **Kea DHCP** - Parse lease file for client information
-- **Unbound** - DNS statistics via control socket
+- **dnsmasq DHCP** - Parse lease files for client information
+- **dnsmasq DNS** - DNS statistics collection disabled (dnsmasq doesn't provide control socket)
 - **Systemd** - Service status monitoring
 - **Network interfaces** - Real-time bandwidth monitoring
 
@@ -207,7 +207,7 @@ JWT_SECRET_KEY=your-secret-key
 JWT_ALGORITHM=HS256
 JWT_EXPIRATION_MINUTES=1440
 COLLECTION_INTERVAL=2
-KEA_LEASE_FILE=/var/lib/kea/dhcp4.leases
+DNSMASQ_LEASE_FILES=/var/lib/dnsmasq/homelab/dhcp.leases /var/lib/dnsmasq/lan/dhcp.leases
 ROUTER_CONFIG_FILE=/etc/nixos/router-config.nix
 DEBUG=false
 ```

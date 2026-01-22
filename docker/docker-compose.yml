@@ -64,9 +64,8 @@ services:
       DEBUG: ${DEBUG:-false}
       
       # System Paths (configurable for Docker)
-      KEA_LEASE_FILE: ${KEA_LEASE_FILE:-/var/lib/kea/dhcp4.leases}
+      DNSMASQ_LEASE_FILES: ${DNSMASQ_LEASE_FILES:-/var/lib/dnsmasq/homelab/dhcp.leases /var/lib/dnsmasq/lan/dhcp.leases}
       ROUTER_CONFIG_FILE: ${ROUTER_CONFIG_FILE:-/etc/nixos/router-config.nix}
-      UNBOUND_CONTROL_PATH: ${UNBOUND_CONTROL_PATH:-/run/unbound/control}
       
       # Collection
       COLLECTION_INTERVAL: ${COLLECTION_INTERVAL:-5}
@@ -77,9 +76,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-[]}
     volumes:
       # System paths (mount from host if available)
-      - ${KEA_LEASE_DIR:-/var/lib/kea}:/var/lib/kea:ro
+      - ${DNSMASQ_LEASE_DIR:-/var/lib/dnsmasq}:/var/lib/dnsmasq:ro
       - ${ROUTER_CONFIG_DIR:-/etc/nixos}:/etc/nixos:ro
-      - ${UNBOUND_RUN_DIR:-/run/unbound}:/run/unbound:ro
       # PAM authentication (read-only)
       - ${PAM_CONFIG_DIR:-/etc/pam.d}:/etc/pam.d:ro
       - ${SHADOW_FILE:-/etc/shadow}:/etc/shadow:ro
@@ -118,14 +116,12 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-in-production}
       JWT_SECRET_FILE: ${JWT_SECRET_FILE:-}
-      KEA_LEASE_FILE: ${KEA_LEASE_FILE:-/var/lib/kea/dhcp4.leases}
+      DNSMASQ_LEASE_FILES: ${DNSMASQ_LEASE_FILES:-/var/lib/dnsmasq/homelab/dhcp.leases /var/lib/dnsmasq/lan/dhcp.leases}
       ROUTER_CONFIG_FILE: ${ROUTER_CONFIG_FILE:-/etc/nixos/router-config.nix}
-      UNBOUND_CONTROL_PATH: ${UNBOUND_CONTROL_PATH:-/run/unbound/control}
       DEBUG: ${DEBUG:-false}
     volumes:
-      - ${KEA_LEASE_DIR:-/var/lib/kea}:/var/lib/kea:ro
+      - ${DNSMASQ_LEASE_DIR:-/var/lib/dnsmasq}:/var/lib/dnsmasq:ro
       - ${ROUTER_CONFIG_DIR:-/etc/nixos}:/etc/nixos:ro
-      - ${UNBOUND_RUN_DIR:-/run/unbound}:/run/unbound:ro
       - ${PAM_CONFIG_DIR:-/etc/pam.d}:/etc/pam.d:ro
       - ${SHADOW_FILE:-/etc/shadow}:/etc/shadow:ro
     networks:

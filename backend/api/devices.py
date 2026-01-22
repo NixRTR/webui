@@ -14,7 +14,7 @@ import os
 
 from ..auth import get_current_user
 from ..collectors.network_devices import discover_network_devices, get_device_count_by_network
-from ..collectors.dhcp import parse_kea_leases
+from ..collectors.dhcp import parse_dnsmasq_leases
 from ..database import AsyncSessionLocal, DeviceOverrideDB, NetworkDeviceDB
 from ..utils.redis_client import delete as redis_delete
 
@@ -75,7 +75,7 @@ async def get_all_devices(
     Returns:
         List[NetworkDevice]: All discovered devices
     """
-    dhcp_leases = parse_kea_leases()
+    dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
 
     # Filter to IPv4 only
@@ -211,7 +211,7 @@ async def get_devices_by_network(
     Returns:
         List[NetworkDevice]: Devices on the specified network
     """
-    dhcp_leases = parse_kea_leases()
+    dhcp_leases = parse_dnsmasq_leases()
     all_devices = discover_network_devices(dhcp_leases)
     
     # Filter to IPv4 only and by network

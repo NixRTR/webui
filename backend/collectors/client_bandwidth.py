@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
 from ..config import settings
-from ..collectors.dhcp import parse_kea_leases
+from ..collectors.dhcp import parse_dnsmasq_leases
 from ..collectors.network_devices import parse_arp_table, determine_network
 
 
@@ -451,7 +451,7 @@ def collect_client_bandwidth() -> List[Dict]:
     try:
         # Get ARP table and DHCP leases for IP-to-MAC mapping
         arp_table = parse_arp_table()
-        dhcp_leases = parse_kea_leases()
+        dhcp_leases = parse_dnsmasq_leases()
         
         # Proactively add all known client IPs to nftables (from ARP and DHCP)
         # This ensures counters are created even before traffic flows

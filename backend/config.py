@@ -38,9 +38,8 @@ class Settings(BaseSettings):
     bandwidth_collection_priority: int = 10  # Nice value (lower priority)
     
     # System Paths
-    kea_lease_file: str = "/var/lib/kea/dhcp4.leases"
+    dnsmasq_lease_files: str = "/var/lib/dnsmasq/homelab/dhcp.leases /var/lib/dnsmasq/lan/dhcp.leases"
     router_config_file: str = "/etc/nixos/router-config.nix"
-    unbound_control_path: str = "/run/unbound/control"
     
     # Historical Data Retention
     metrics_retention_days: int = 30

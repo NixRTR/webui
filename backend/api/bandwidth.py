@@ -18,7 +18,7 @@ from ..models import (
 from ..collectors.client_bandwidth import collect_client_bandwidth
 from ..collectors.client_connections import _resolve_hostname
 from ..collectors.network_devices import discover_network_devices
-from ..collectors.dhcp import parse_kea_leases
+from ..collectors.dhcp import parse_dnsmasq_leases
 from ..collectors.network import collect_interface_stats
 from ..config import settings
 from sqlalchemy import func
@@ -505,7 +505,7 @@ async def get_current_client_bandwidth(
     current_data = collect_client_bandwidth()
     
     # Get device information for hostnames
-    dhcp_leases = parse_kea_leases()
+        dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
     # Filter to IPv4 only
     devices = [d for d in devices if _is_ipv4(d.ip_address)]
