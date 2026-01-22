@@ -403,7 +403,7 @@ async def get_github_stats(
     Returns:
         GitHubStats: Repository stars and forks count
     """
-    repo_owner = "BeardedTek"
+    repo_owner = "NixRTR"
     repo_name = "nixos-router"
     
     try:

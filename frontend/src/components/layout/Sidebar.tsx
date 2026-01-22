@@ -258,7 +258,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               </FlowbiteSidebar.Item>
               {/* GitHub Links */}
               <FlowbiteSidebar.Item
-                href="https://github.com/BeardedTek/nixos-router"
+                href="https://github.com/NixRTR/nixos-router"
                 target="_blank"
                 rel="noopener noreferrer"
                 icon={FaGithub}
@@ -274,7 +274,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 </div>
               </FlowbiteSidebar.Item>
               <FlowbiteSidebar.Item
-                href="https://github.com/BeardedTek/nixos-router/issues"
+                href="https://github.com/NixRTR/nixos-router/issues"
                 target="_blank"
                 rel="noopener noreferrer"
                 icon={HiInformationCircle}
