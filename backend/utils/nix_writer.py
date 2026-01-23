@@ -82,6 +82,8 @@ def format_nix_dict(data: Dict[str, Any], indent: int = 0) -> str:
         else:
             value_str = json.dumps(value)
         
+        # In Nix, all attribute assignments need semicolons except the last one in the set
+        # However, when the value is a nested dict/list, we need to ensure proper formatting
         suffix = ";" if i < len(items) - 1 else ""
         lines.append(f"{indent_str}  {nix_key} = {value_str}{suffix}")
     lines.append(f"{indent_str}}}")

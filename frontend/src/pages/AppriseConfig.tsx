@@ -89,66 +89,51 @@ export function AppriseConfig() {
     
     try {
       // Prepare services for saving - include all services with their configured values
+      // Always include all services, even if disabled, to match the Nix file structure
       const servicesToSave: Record<string, any> = {};
       
-      // Email service
-      if (services.email) {
-        servicesToSave.email = {
-          enable: services.email.enable || false,
-          smtpHost: services.email.smtpHost || 'smtp.gmail.com',
-          smtpPort: services.email.smtpPort || 587,
-          username: services.email.username || '',
-          to: services.email.to || '',
-        };
-        if (services.email.from) {
-          servicesToSave.email.from = services.email.from;
-        }
+      // Email service - always include
+      servicesToSave.email = {
+        enable: services.email?.enable || false,
+      };
+      if (services.email?.smtpHost) servicesToSave.email.smtpHost = services.email.smtpHost;
+      if (services.email?.smtpPort) servicesToSave.email.smtpPort = services.email.smtpPort;
+      if (services.email?.username) servicesToSave.email.username = services.email.username;
+      if (services.email?.to) servicesToSave.email.to = services.email.to;
+      if (services.email?.from) servicesToSave.email.from = services.email.from;
+      
+      // Home Assistant service - always include
+      servicesToSave.homeAssistant = {
+        enable: services.homeAssistant?.enable || false,
+      };
+      if (services.homeAssistant?.host) servicesToSave.homeAssistant.host = services.homeAssistant.host;
+      if (services.homeAssistant?.port) servicesToSave.homeAssistant.port = services.homeAssistant.port;
+      if (services.homeAssistant?.useHttps !== undefined && services.homeAssistant?.useHttps !== null) {
+        servicesToSave.homeAssistant.useHttps = services.homeAssistant.useHttps;
       }
       
-      // Home Assistant service
-      if (services.homeAssistant) {
-        servicesToSave.homeAssistant = {
-          enable: services.homeAssistant.enable || false,
-          host: services.homeAssistant.host || 'homeassistant.local',
-          port: services.homeAssistant.port || 8123,
-        };
-        if (services.homeAssistant.useHttps !== undefined && services.homeAssistant.useHttps !== null) {
-          servicesToSave.homeAssistant.useHttps = services.homeAssistant.useHttps;
-        }
-      }
+      // Discord service - always include
+      servicesToSave.discord = {
+        enable: services.discord?.enable || false,
+      };
       
-      // Discord service
-      if (services.discord) {
-        servicesToSave.discord = {
-          enable: services.discord.enable || false,
-        };
-      }
+      // Slack service - always include
+      servicesToSave.slack = {
+        enable: services.slack?.enable || false,
+      };
       
-      // Slack service
-      if (services.slack) {
-        servicesToSave.slack = {
-          enable: services.slack.enable || false,
-        };
-      }
+      // Telegram service - always include
+      servicesToSave.telegram = {
+        enable: services.telegram?.enable || false,
+      };
+      if (services.telegram?.chatId) servicesToSave.telegram.chatId = services.telegram.chatId;
       
-      // Telegram service
-      if (services.telegram) {
-        servicesToSave.telegram = {
-          enable: services.telegram.enable || false,
-          chatId: services.telegram.chatId || '',
-        };
-      }
-      
-      // ntfy service
-      if (services.ntfy) {
-        servicesToSave.ntfy = {
-          enable: services.ntfy.enable || false,
-          topic: services.ntfy.topic || 'router-notifications',
-        };
-        if (services.ntfy.server) {
-          servicesToSave.ntfy.server = services.ntfy.server;
-        }
-      }
+      // ntfy service - always include
+      servicesToSave.ntfy = {
+        enable: services.ntfy?.enable || false,
+      };
+      if (services.ntfy?.topic) servicesToSave.ntfy.topic = services.ntfy.topic;
+      if (services.ntfy?.server) servicesToSave.ntfy.server = services.ntfy.server;
       
       const update: AppriseConfigUpdate = {
         enable,
