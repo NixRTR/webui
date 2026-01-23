@@ -17,6 +17,7 @@ import {
   HiBell,
   HiGlobe,
   HiServer,
+  HiCog,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
 import { apiClient } from '../../api/client';
@@ -94,6 +95,25 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
       onClose();
     }
   };
+
+  // Helper functions matching docs pattern
+  const isActive = (path: string) => location.pathname === path;
+  const isParentActive = (path: string, children?: Array<{ path: string }>) => {
+    if (isActive(path)) return true;
+    if (children) {
+      return children.some(child => location.pathname.startsWith(child.path));
+    }
+    return false;
+  };
+
+  // Define Config menu structure
+  const configChildren = [
+    ...(cakeEnabled ? [{ path: '/traffic-shaping', label: 'Traffic Shaping', icon: HiTrendingUp }] : []),
+    ...(appriseEnabled ? [{ path: '/notifications', label: 'Notifications', icon: HiBell }] : []),
+    { path: '/dns', label: 'DNS', icon: HiGlobe },
+    { path: '/dhcp', label: 'DHCP', icon: HiServer },
+  ];
+  const configPath = '/config';
 
   return (
     <>
@@ -177,49 +197,42 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 Speedtest
               </FlowbiteSidebar.Item>
 
-              {appriseEnabled && (
-                <FlowbiteSidebar.Item
-                  as={Link}
-                  to="/notifications"
-                  icon={HiBell}
-                  active={location.pathname === '/notifications'}
-                  onClick={handleItemClick}
+              {/* Config Menu - Custom collapsible structure matching docs pattern */}
+              <li>
+                <div
+                  className={`flex items-center p-2 rounded-lg ${
+                    isParentActive(configPath, configChildren)
+                      ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                      : 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
+                  }`}
                 >
-                  Notifications
-                </FlowbiteSidebar.Item>
-              )}
-
-              <FlowbiteSidebar.Item
-                as={Link}
-                to="/dns"
-                icon={HiGlobe}
-                active={location.pathname === '/dns'}
-                onClick={handleItemClick}
-              >
-                DNS
-              </FlowbiteSidebar.Item>
-
-              <FlowbiteSidebar.Item
-                as={Link}
-                to="/dhcp"
-                icon={HiServer}
-                active={location.pathname === '/dhcp'}
-                onClick={handleItemClick}
-              >
-                DHCP
-              </FlowbiteSidebar.Item>
-
-              {cakeEnabled && (
-                <FlowbiteSidebar.Item
-                  as={Link}
-                  to="/traffic-shaping"
-                  icon={HiTrendingUp}
-                  active={location.pathname === '/traffic-shaping'}
-                  onClick={handleItemClick}
-                >
-                  Traffic Shaping
-                </FlowbiteSidebar.Item>
-              )}
+                  <HiCog className="w-5 h-5 mr-3" />
+                  <span>Config</span>
+                </div>
+                {isParentActive(configPath, configChildren) && (
+                  <ul className="ml-6 mt-2 space-y-1">
+                    {configChildren.map((child) => {
+                      const IconComponent = child.icon;
+                      return (
+                        <li key={child.path}>
+                          <Link
+                            to={child.path}
+                            onClick={handleItemClick}
+                            className={`flex items-center p-2 rounded-lg text-sm ${
+                              isActive(child.path)
+                                ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            <IconComponent className="w-4 h-4 mr-2" />
+                            {child.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </li>
             </FlowbiteSidebar.ItemGroup>
 
             <FlowbiteSidebar.ItemGroup>
