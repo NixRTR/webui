@@ -7,8 +7,9 @@ import re
 import logging
 from typing import Dict, List, Optional
 from ..config import settings
-from .dns import parse_nix_config, extract_base_domain
+from .dns import parse_nix_config, parse_dns_nix_file, extract_base_domain
 from .dhcp import parse_router_config_dhcp
+from .dhcp_parser import parse_dhcp_nix_file
 from .dnsmasq_parser import parse_dnsmasq_config_file
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,11 @@ def get_dns_zones_from_config(network: str) -> List[Dict]:
     zones = set()
     zone_data = {}  # zone_name -> zone dict
     
-    # Read from router-config.nix
-    config = parse_nix_config()
+    # Read from dnsmasq/dns-{network}.nix
+    config = parse_dns_nix_file(network)
     if config:
-        network_config = config.get(network, {})
-        a_records = network_config.get('a_records', {})
-        cname_records = network_config.get('cname_records', {})
+        a_records = config.get('a_records', {})
+        cname_records = config.get('cname_records', {})
         
         # Extract unique base domains (zones)
         for hostname in list(a_records.keys()) + list(cname_records.keys()):
@@ -108,12 +108,11 @@ def get_dns_records_from_config(network: str, zone_name: Optional[str] = None) -
     """
     records = {}  # name -> record dict (to handle overrides)
     
-    # Read from router-config.nix
-    config = parse_nix_config()
+    # Read from dnsmasq/dns-{network}.nix
+    config = parse_dns_nix_file(network)
     if config:
-        network_config = config.get(network, {})
-        a_records = network_config.get('a_records', {})
-        cname_records = network_config.get('cname_records', {})
+        a_records = config.get('a_records', {})
+        cname_records = config.get('cname_records', {})
         
         # Process A records
         for hostname, record_data in a_records.items():
@@ -193,29 +192,25 @@ def get_dns_records_from_config(network: str, zone_name: Optional[str] = None) -
 
 
 def get_dhcp_networks_from_config() -> List[Dict]:
-    """Get DHCP networks from router-config.nix
+    """Get DHCP networks from dnsmasq/dhcp-*.nix files
     
     Returns:
         List of DHCP network dictionaries
     """
-    config = parse_router_config_dhcp()
-    if not config:
-        return []
-    
     networks = []
     for network_name in ['homelab', 'lan']:
-        network_config = config.get(network_name, {})
-        if not network_config:
+        config = parse_dhcp_nix_file(network_name)
+        if not config:
             continue
         
         networks.append({
             'network': network_name,
-            'enabled': network_config.get('enable', True),
-            'start': network_config.get('start', ''),
-            'end': network_config.get('end', ''),
-            'lease_time': network_config.get('leaseTime', '1h'),
-            'dns_servers': network_config.get('dnsServers', []),
-            'dynamic_domain': network_config.get('dynamicDomain', '')
+            'enabled': config.get('enable', True),
+            'start': config.get('start', ''),
+            'end': config.get('end', ''),
+            'lease_time': config.get('leaseTime', '1h'),
+            'dns_servers': config.get('dnsServers', []),
+            'dynamic_domain': config.get('dynamicDomain', '')
         })
     
     return networks
@@ -234,11 +229,10 @@ def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
     """
     reservations = {}  # hw_address -> reservation dict (to handle overrides)
     
-    # Read from router-config.nix
-    config = parse_router_config_dhcp()
+    # Read from dnsmasq/dhcp-{network}.nix
+    config = parse_dhcp_nix_file(network)
     if config:
-        network_config = config.get(network, {})
-        router_reservations = network_config.get('reservations', [])
+        router_reservations = config.get('reservations', [])
         
         for res in router_reservations:
             hw_address = res['hwAddress']

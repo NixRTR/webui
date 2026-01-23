@@ -12,7 +12,11 @@ from .config_reader import (
 )
 from .dnsmasq_dns import generate_dnsmasq_dns_config
 from .dnsmasq_dhcp import generate_dnsmasq_dhcp_config
-from .config_writer import write_dns_config, write_dhcp_config
+from .config_writer import write_dns_config, write_dhcp_config, write_dns_nix_config, write_dhcp_nix_config
+from .dns import parse_dns_nix_file
+from .dhcp_parser import parse_dhcp_nix_file
+from .nix_writer import format_nix_dict
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +169,38 @@ def update_dns_record_in_config(
     
     config_content = "\n".join(lines)
     
-    # Write to config file
+    # Write to webui-dns.conf for immediate dnsmasq reload
     write_dns_config(network, config_content)
+    
+    # Also write to Nix file for declarative config
+    # Read current Nix file to get structure
+    nix_config = parse_dns_nix_file(network) or {'a_records': {}, 'cname_records': {}}
+    
+    # Convert records back to Nix format
+    a_records = {}
+    cname_records = {}
+    
+    for record in updated_all_records:
+        if record['type'] == 'A':
+            # Skip wildcards for A records (they're handled as CNAME)
+            if not record['name'].startswith('*.'):
+                a_records[record['name']] = {
+                    'ip': record['value'],
+                    'comment': record.get('comment', '')
+                }
+        elif record['type'] == 'CNAME':
+            cname_records[record['name']] = {
+                'target': record['value'],
+                'comment': record.get('comment', '')
+            }
+    
+    # Write to Nix file via socket service
+    nix_data = {
+        'a_records': a_records,
+        'cname_records': cname_records
+    }
+    nix_formatted = format_nix_dict(nix_data, indent=0)
+    write_dns_nix_config(network, nix_formatted)
 
 
 def update_dhcp_reservation_in_config(
@@ -226,8 +260,47 @@ def update_dhcp_reservation_in_config(
     
     config_content = "\n".join(lines)
     
-    # Write to config file
+    # Write to webui-dhcp.conf for immediate dnsmasq reload
     write_dhcp_config(network, config_content)
+    
+    # Also write to Nix file for declarative config
+    # Read current Nix file to get network settings
+    nix_config = parse_dhcp_nix_file(network)
+    if not nix_config:
+        logger.warning(f"Could not read DHCP Nix file for {network}, skipping Nix write")
+        return
+    
+    # Convert reservations to Nix format
+    nix_reservations = []
+    for res in reservations:
+        nix_reservations.append({
+            'hostname': res['hostname'],
+            'hwAddress': res['hw_address'],
+            'ipAddress': res['ip_address'],
+            'comment': res.get('comment', '')
+        })
+    
+    # Determine Nix file path
+    if network == "homelab":
+        nix_file_path = settings.dhcp_homelab_file
+    elif network == "lan":
+        nix_file_path = settings.dhcp_lan_file
+    else:
+        logger.warning(f"Invalid network {network}, skipping Nix file write")
+        return
+    
+    # Write to Nix file via socket service
+    nix_data = {
+        'enable': nix_config.get('enable', True),
+        'start': nix_config.get('start', ''),
+        'end': nix_config.get('end', ''),
+        'leaseTime': nix_config.get('leaseTime', '1h'),
+        'dnsServers': nix_config.get('dnsServers', []),
+        'dynamicDomain': nix_config.get('dynamicDomain', ''),
+        'reservations': nix_reservations
+    }
+    nix_formatted = format_nix_dict(nix_data, indent=0)
+    write_dhcp_nix_config(network, nix_formatted)
 
 
 def _resolve_cname_from_records(records: List[Dict], target: str) -> Optional[str]:

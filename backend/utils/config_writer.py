@@ -81,6 +81,40 @@ def revert_dhcp_config(network: str, history_id: int, config_content: str) -> No
     _send_command(f"revert-dhcp {network} {history_id}", config_content)
 
 
+def write_dns_nix_config(network: str, config_content: str) -> None:
+    """Write DNS Nix configuration file via socket-activated helper service
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        ValueError: If network is invalid
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
+    _send_command(f"write-nix-dns {network}", config_content)
+
+
+def write_dhcp_nix_config(network: str, config_content: str) -> None:
+    """Write DHCP Nix configuration file via socket-activated helper service
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        ValueError: If network is invalid
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
+    _send_command(f"write-nix-dhcp {network}", config_content)
+
+
 def _send_command(command: str, content: Optional[str]) -> None:
     """Send command and content to config writer socket
     

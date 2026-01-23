@@ -27,6 +27,83 @@ def extract_base_domain(hostname: str) -> str:
     return hostname
 
 
+def parse_dns_nix_file(network: str) -> Optional[Dict]:
+    """Parse a DNS Nix file for a specific network
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        Dictionary with a_records and cname_records, or None if file not found
+    """
+    # Determine file path
+    if network == "homelab":
+        file_path = settings.dns_homelab_file
+    elif network == "lan":
+        file_path = settings.dns_lan_file
+    else:
+        logger.error(f"Invalid network: {network}")
+        return None
+    
+    if not os.path.exists(file_path):
+        logger.warning(f"DNS Nix file not found at {file_path}")
+        return None
+    
+    logger.debug(f"Parsing DNS Nix file: {file_path}")
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        config = {
+            'a_records': {},
+            'cname_records': {}
+        }
+        
+        # Extract a_records
+        a_records_match = re.search(r'a_records\s*=\s*\{', content)
+        if a_records_match:
+            # Find matching closing brace
+            brace_start = a_records_match.end() - 1
+            a_content, _ = _extract_braced_content(content, brace_start)
+            if a_content:
+                config['a_records'] = _parse_a_records(a_content)
+        
+        # Extract cname_records
+        cname_records_match = re.search(r'cname_records\s*=\s*\{', content)
+        if cname_records_match:
+            # Find matching closing brace
+            brace_start = cname_records_match.end() - 1
+            cname_content, _ = _extract_braced_content(content, brace_start)
+            if cname_content:
+                config['cname_records'] = _parse_cname_records(cname_content)
+        
+        logger.debug(f"Parsed DNS config for {network}: {len(config['a_records'])} A, {len(config['cname_records'])} CNAME")
+        return config
+        
+    except Exception as e:
+        logger.error(f"Error parsing DNS Nix file {file_path}: {type(e).__name__}: {str(e)}", exc_info=True)
+        return None
+
+
+def _extract_braced_content(text: str, start_pos: int) -> tuple[Optional[str], int]:
+    """Extract content between matching braces, returning content and end position"""
+    if start_pos >= len(text) or text[start_pos] != '{':
+        return None, start_pos
+    depth = 0
+    start = start_pos + 1
+    i = start_pos
+    while i < len(text):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i].strip(), i + 1
+        i += 1
+    return None, start_pos
+
+
 def parse_nix_config() -> Dict:
     """Parse router-config.nix file to extract DNS configuration
     
