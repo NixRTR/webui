@@ -3,7 +3,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, TextInput, Label, Select, Alert, ToggleSwitch, Accordion } from 'flowbite-react';
+import { Card, Button, TextInput, Label, Select, Alert, ToggleSwitch } from 'flowbite-react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
