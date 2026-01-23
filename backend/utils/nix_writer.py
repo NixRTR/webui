@@ -84,7 +84,7 @@ def format_nix_dict(data: Dict[str, Any], indent: int = 0) -> str:
         
         suffix = ";" if i < len(items) - 1 else ""
         lines.append(f"{indent_str}  {nix_key} = {value_str}{suffix}")
-    lines.append(f"{indent_str}}")
+    lines.append(f"{indent_str}}}")
     return "\n".join(lines)
 
 
