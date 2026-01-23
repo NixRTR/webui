@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     # System Paths
     dnsmasq_lease_files: str = "/var/lib/dnsmasq/homelab/dhcp.leases /var/lib/dnsmasq/lan/dhcp.leases"
     router_config_file: str = "/etc/nixos/router-config.nix"
-    dnsmasq_config_dir: str = "/etc/nixos/dnsmasq"
-    dns_homelab_file: str = "/etc/nixos/dnsmasq/dns-homelab.nix"
-    dns_lan_file: str = "/etc/nixos/dnsmasq/dns-lan.nix"
-    dhcp_homelab_file: str = "/etc/nixos/dnsmasq/dhcp-homelab.nix"
-    dhcp_lan_file: str = "/etc/nixos/dnsmasq/dhcp-lan.nix"
+    dnsmasq_config_dir: str = "/etc/nixos/config/dnsmasq"
+    dns_homelab_file: str = "/etc/nixos/config/dnsmasq/dns-homelab.nix"
+    dns_lan_file: str = "/etc/nixos/config/dnsmasq/dns-lan.nix"
+    dhcp_homelab_file: str = "/etc/nixos/config/dnsmasq/dhcp-homelab.nix"
+    dhcp_lan_file: str = "/etc/nixos/config/dnsmasq/dhcp-lan.nix"
     
     # Historical Data Retention
     metrics_retention_days: int = 30
