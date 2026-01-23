@@ -503,8 +503,6 @@ export function Dns() {
                     <div className="min-[1000px]:hidden space-y-3">
                       {homelabZones.map((zone) => {
                       const serviceStatus = getServiceStatusForZone(zone);
-                      const serviceKey = `${zone.network}-`;
-                      const isControlling = controllingService?.startsWith(serviceKey);
                       return (
                         <div
                           key={zone.id}
@@ -735,8 +733,6 @@ export function Dns() {
                     <div className="min-[1000px]:hidden space-y-3">
                       {lanZones.map((zone) => {
                         const serviceStatus = getServiceStatusForZone(zone);
-                        const serviceKey = `${zone.network}-`;
-                        const isControlling = controllingService?.startsWith(serviceKey);
                         return (
                           <div
                             key={zone.id}
