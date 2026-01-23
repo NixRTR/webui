@@ -3,6 +3,7 @@ Read DNS and DHCP configuration from config files (source of truth)
 Merges router-config.nix with WebUI-managed config files
 """
 import os
+import re
 import logging
 from typing import Dict, List, Optional
 from ..config import settings
@@ -221,7 +222,9 @@ def get_dhcp_networks_from_config() -> List[Dict]:
 
 
 def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
-    """Get DHCP reservations from router-config.nix
+    """Get DHCP reservations from config files (router-config.nix + webui-dhcp.conf)
+    
+    Merges reservations from both sources, with WebUI config taking precedence.
     
     Args:
         network: Network name ("homelab" or "lan")
@@ -229,22 +232,51 @@ def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
     Returns:
         List of reservation dictionaries
     """
+    reservations = {}  # hw_address -> reservation dict (to handle overrides)
+    
+    # Read from router-config.nix
     config = parse_router_config_dhcp()
-    if not config:
-        return []
+    if config:
+        network_config = config.get(network, {})
+        router_reservations = network_config.get('reservations', [])
+        
+        for res in router_reservations:
+            hw_address = res['hwAddress']
+            reservations[hw_address] = {
+                'hostname': res['hostname'],
+                'hw_address': hw_address,
+                'ip_address': res['ipAddress'],
+                'comment': res.get('comment', ''),
+                'network': network,
+                'enabled': True
+            }
     
-    network_config = config.get(network, {})
-    reservations = network_config.get('reservations', [])
+    # Read from WebUI-managed dnsmasq config (overrides/additions)
+    webui_config_path = f"/var/lib/dnsmasq/{network}/webui-dhcp.conf"
+    if os.path.exists(webui_config_path):
+        try:
+            with open(webui_config_path, 'r') as f:
+                content = f.read()
+            
+            # Parse dhcp-host= directives
+            # Format: dhcp-host=MAC,hostname,IP  # comment
+            dhcp_host_pattern = r'dhcp-host=([^,]+),([^,]+),([^\s#]+)(?:\s*#\s*(.+))?'
+            for match in re.finditer(dhcp_host_pattern, content):
+                hw_address = match.group(1).strip()
+                hostname = match.group(2).strip()
+                ip_address = match.group(3).strip()
+                comment = match.group(4).strip() if match.group(4) else ""
+                
+                # Override or add reservation from WebUI config
+                reservations[hw_address] = {
+                    'hostname': hostname,
+                    'hw_address': hw_address,
+                    'ip_address': ip_address,
+                    'comment': comment,
+                    'network': network,
+                    'enabled': True
+                }
+        except Exception as e:
+            logger.warning(f"Error reading webui-dhcp.conf for {network}: {e}")
     
-    result = []
-    for res in reservations:
-        result.append({
-            'hostname': res['hostname'],
-            'hw_address': res['hwAddress'],
-            'ip_address': res['ipAddress'],
-            'comment': res.get('comment', ''),
-            'network': network,
-            'enabled': True
-        })
-    
-    return result
+    return list(reservations.values())

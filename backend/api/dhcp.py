@@ -10,8 +10,7 @@ import logging
 import socket
 import os
 
-from ..database import get_db, DhcpNetworkDB, DhcpReservationDB, DhcpConfigHistoryDB
-from sqlalchemy import select
+from ..database import get_db, DhcpConfigHistoryDB
 from ..models import (
     DhcpNetwork, DhcpNetworkCreate, DhcpNetworkUpdate,
     DhcpReservation, DhcpReservationCreate, DhcpReservationUpdate
@@ -240,546 +239,390 @@ async def create_network(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpNetwork:
-    """Create a new DHCP network
+    """Create a new DHCP network (not supported - networks come from router-config.nix)
+    
+    DHCP networks are defined in router-config.nix and cannot be created via WebUI.
+    Only reservations can be managed through the WebUI.
     
     Args:
         network: Network creation data
         
     Returns:
-        Created network
+        Error response
     """
-    # Check if network already exists
-    result = await db.execute(
-        select(DhcpNetworkDB).where(
-            DhcpNetworkDB.network == network.network
-        )
+    raise HTTPException(
+        status_code=400,
+        detail="DHCP networks cannot be created via WebUI. They must be defined in router-config.nix. Only reservations can be managed through the WebUI."
     )
-    existing = result.scalar_one_or_none()
-    if existing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"DHCP network {network.network} already exists"
-        )
-    
-    db_network = DhcpNetworkDB(
-        network=network.network,
-        enabled=network.enabled,
-        start=network.start,
-        end=network.end,
-        lease_time=network.lease_time,
-        dns_servers=network.dns_servers,
-        dynamic_domain=network.dynamic_domain,
-        original_config_path=network.original_config_path
-    )
-    db.add(db_network)
-    await db.commit()
-    await db.refresh(db_network)
-    
-    # Write config and reload service
-    await _write_dhcp_config_and_reload(
-        db, network.network, username, "create",
-        {"network_id": db_network.id, "network": network.network}
-    )
-    
-    # Convert INET types to strings
-    net_dict = {
-        'id': db_network.id,
-        'network': db_network.network,
-        'enabled': db_network.enabled,
-        'start': str(db_network.start) if db_network.start else '',
-        'end': str(db_network.end) if db_network.end else '',
-        'lease_time': db_network.lease_time,
-        'dns_servers': [str(ip) for ip in db_network.dns_servers] if db_network.dns_servers else None,
-        'dynamic_domain': db_network.dynamic_domain,
-        'original_config_path': db_network.original_config_path,
-        'created_at': db_network.created_at,
-        'updated_at': db_network.updated_at,
-    }
-    return DhcpNetwork.model_validate(net_dict)
 
 
-@router.get("/networks/{network_id}", response_model=DhcpNetwork)
+@router.get("/networks/{network}", response_model=DhcpNetwork)
 async def get_network(
-    network_id: int,
+    network: str,
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpNetwork:
-    """Get a specific DHCP network by ID
+    """Get a specific DHCP network by name from config files
     
     Args:
-        network_id: Network ID
+        network: Network name ("homelab" or "lan")
         
     Returns:
         DHCP network
     """
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == network_id)
-    )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="DHCP network not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    # Convert INET types to strings
+    networks = get_dhcp_networks_from_config()
+    dhcp_network = next((n for n in networks if n['network'] == network), None)
+    
+    if not dhcp_network:
+        raise HTTPException(status_code=404, detail=f"DHCP network {network} not found")
+    
+    # Convert to Pydantic model (assigning temporary ID for API compatibility)
     net_dict = {
-        'id': network.id,
-        'network': network.network,
-        'enabled': network.enabled,
-        'start': str(network.start) if network.start else '',
-        'end': str(network.end) if network.end else '',
-        'lease_time': network.lease_time,
-        'dns_servers': [str(ip) for ip in network.dns_servers] if network.dns_servers else None,
-        'dynamic_domain': network.dynamic_domain,
-        'original_config_path': network.original_config_path,
-        'created_at': network.created_at,
-        'updated_at': network.updated_at,
+        'id': hash(f"dhcp:{network}") % (2**31),  # Temporary ID
+        'network': dhcp_network['network'],
+        'enabled': dhcp_network.get('enabled', True),
+        'start': dhcp_network.get('start', ''),
+        'end': dhcp_network.get('end', ''),
+        'lease_time': dhcp_network.get('lease_time', '1h'),
+        'dns_servers': dhcp_network.get('dns_servers', []),
+        'dynamic_domain': dhcp_network.get('dynamic_domain', ''),
+        'original_config_path': None,
+        'created_at': None,
+        'updated_at': None,
     }
     return DhcpNetwork.model_validate(net_dict)
 
 
-@router.put("/networks/{network_id}", response_model=DhcpNetwork)
+@router.put("/networks/{network}", response_model=DhcpNetwork)
 async def update_network(
-    network_id: int,
+    network: str,
     network_update: DhcpNetworkUpdate,
-    _: str = Depends(get_current_user),
+    username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpNetwork:
-    """Update a DHCP network
+    """Update a DHCP network (not supported - networks come from router-config.nix)
+    
+    DHCP network settings (start, end, lease_time, etc.) are defined in router-config.nix
+    and cannot be modified via WebUI. Only reservations can be managed through the WebUI.
     
     Args:
-        network_id: Network ID
+        network: Network name ("homelab" or "lan")
         network_update: Update data
         
     Returns:
-        Updated network
+        Error response
     """
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == network_id)
+    raise HTTPException(
+        status_code=400,
+        detail="DHCP network settings cannot be modified via WebUI. They must be changed in router-config.nix. Only reservations can be managed through the WebUI."
     )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="DHCP network not found")
-    
-    # Update fields
-    update_data = network_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(network, field, value)
-    
-    await db.commit()
-    await db.refresh(network)
-    
-    # Write config and reload service
-    await _write_dhcp_config_and_reload(
-        db, network.network, username, "update",
-        {"network_id": network_id, "network": network.network}
-    )
-    
-    # Convert INET types to strings
-    net_dict = {
-        'id': network.id,
-        'network': network.network,
-        'enabled': network.enabled,
-        'start': str(network.start) if network.start else '',
-        'end': str(network.end) if network.end else '',
-        'lease_time': network.lease_time,
-        'dns_servers': [str(ip) for ip in network.dns_servers] if network.dns_servers else None,
-        'dynamic_domain': network.dynamic_domain,
-        'original_config_path': network.original_config_path,
-        'created_at': network.created_at,
-        'updated_at': network.updated_at,
-    }
-    return DhcpNetwork.model_validate(net_dict)
 
 
-@router.delete("/networks/{network_id}")
+@router.delete("/networks/{network}")
 async def delete_network(
-    network_id: int,
+    network: str,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a DHCP network (cascades to reservations)
+    """Delete a DHCP network (not supported - networks come from router-config.nix)
+    
+    DHCP networks are defined in router-config.nix and cannot be deleted via WebUI.
+    Only reservations can be managed through the WebUI.
     
     Args:
-        network_id: Network ID
+        network: Network name ("homelab" or "lan")
     """
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == network_id)
+    raise HTTPException(
+        status_code=400,
+        detail="DHCP networks cannot be deleted via WebUI. They must be removed from router-config.nix. Only reservations can be managed through the WebUI."
     )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="DHCP network not found")
-    
-    network_name = network.network
-    await db.delete(network)
-    await db.commit()
-    
-    # Write config and reload service
-    await _write_dhcp_config_and_reload(
-        db, network_name, username, "delete",
-        {"network_id": network_id, "network": network_name}
-    )
-    
-    return {"message": "DHCP network deleted"}
 
 
-@router.get("/networks/{network_id}/reservations", response_model=List[DhcpReservation])
+@router.get("/networks/{network}/reservations", response_model=List[DhcpReservation])
 async def get_reservations(
-    network_id: int,
+    network: str,
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> List[DhcpReservation]:
-    """Get list of DHCP reservations for a network
+    """Get list of DHCP reservations for a network from config files
     
     Args:
-        network_id: Network ID
+        network: Network name ("homelab" or "lan")
         
     Returns:
         List of DHCP reservations
     """
-    # Verify network exists
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == network_id)
-    )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="DHCP network not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    result = await db.execute(
-        select(DhcpReservationDB)
-        .where(DhcpReservationDB.network_id == network_id)
-        .order_by(DhcpReservationDB.hostname)
-    )
-    reservations = result.scalars().all()
+    reservations = get_dhcp_reservations_from_config(network)
     
-    # Convert database models to Pydantic models, converting MACADDR and INET types to strings
+    # Convert to Pydantic models (assigning temporary IDs for API compatibility)
     result_reservations = []
     for res in reservations:
         res_dict = {
-            'id': res.id,
-            'network_id': res.network_id,
-            'hostname': res.hostname,
-            'hw_address': str(res.hw_address) if res.hw_address else '',
-            'ip_address': str(res.ip_address) if res.ip_address else '',
-            'comment': res.comment,
-            'enabled': res.enabled,
-            'original_config_path': res.original_config_path,
-            'created_at': res.created_at,
-            'updated_at': res.updated_at,
+            'id': hash(f"{network}:{res['hw_address']}") % (2**31),  # Temporary ID
+            'network_id': hash(f"dhcp:{network}") % (2**31),  # Temporary network_id
+            'hostname': res['hostname'],
+            'hw_address': res['hw_address'],
+            'ip_address': res['ip_address'],
+            'comment': res.get('comment', ''),
+            'enabled': res.get('enabled', True),
+            'original_config_path': None,
+            'created_at': None,
+            'updated_at': None,
         }
         result_reservations.append(DhcpReservation.model_validate(res_dict))
     
-    return result_reservations
+    return sorted(result_reservations, key=lambda r: r.hostname)
 
 
-@router.post("/networks/{network_id}/reservations", response_model=DhcpReservation)
+@router.post("/networks/{network}/reservations", response_model=DhcpReservation)
 async def create_reservation(
-    network_id: int,
+    network: str,
     reservation: DhcpReservationCreate,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpReservation:
-    """Create a new DHCP reservation
+    """Create a new DHCP reservation (writes to config file)
     
     Args:
-        network_id: Network ID
-        reservation: Reservation creation data (network_id will be overridden)
+        network: Network name ("homelab" or "lan")
+        reservation: Reservation creation data
         
     Returns:
         Created reservation
     """
-    # Verify network exists
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == network_id)
-    )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="DHCP network not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    # Check if reservation with same MAC already exists in this network
-    result = await db.execute(
-        select(DhcpReservationDB).where(
-            DhcpReservationDB.network_id == network_id,
-            DhcpReservationDB.hw_address == reservation.hw_address
-        )
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
+    # Verify network exists in config
+    networks = get_dhcp_networks_from_config()
+    dhcp_network = next((n for n in networks if n['network'] == network), None)
+    if not dhcp_network:
+        raise HTTPException(status_code=404, detail=f"DHCP network {network} not found")
+    
+    # Check if reservation with same MAC already exists
+    existing_reservations = get_dhcp_reservations_from_config(network)
+    if any(r['hw_address'] == reservation.hw_address for r in existing_reservations):
         raise HTTPException(
             status_code=400,
-            detail=f"Reservation with MAC {reservation.hw_address} already exists for this network"
+            detail=f"Reservation with MAC {reservation.hw_address} already exists for network {network}"
         )
     
-    # Check if IP address is already reserved in this network
-    result = await db.execute(
-        select(DhcpReservationDB).where(
-            DhcpReservationDB.network_id == network_id,
-            DhcpReservationDB.ip_address == reservation.ip_address
-        )
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
+    # Check if IP address is already reserved
+    if any(r['ip_address'] == reservation.ip_address for r in existing_reservations):
         raise HTTPException(
             status_code=400,
-            detail=f"IP address {reservation.ip_address} is already reserved in this network"
+            detail=f"IP address {reservation.ip_address} is already reserved in network {network}"
         )
     
-    db_reservation = DhcpReservationDB(
-        network_id=network_id,
-        hostname=reservation.hostname,
-        hw_address=reservation.hw_address,
-        ip_address=reservation.ip_address,
-        comment=reservation.comment,
-        enabled=reservation.enabled,
-        original_config_path=reservation.original_config_path
-    )
-    db.add(db_reservation)
-    await db.commit()
-    await db.refresh(db_reservation)
+    # Update config file
+    try:
+        update_dhcp_reservation_in_config(
+            network=network,
+            operation="add",
+            hw_address=reservation.hw_address,
+            hostname=reservation.hostname,
+            ip_address=reservation.ip_address,
+            comment=reservation.comment
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
-    # Write config and reload service
+    # Write config and reload service, track history
     await _write_dhcp_config_and_reload(
-        db, network.network, username, "create",
-        {"reservation_id": db_reservation.id, "hostname": reservation.hostname, "network_id": network_id}
+        db, network, username, "create",
+        {"hostname": reservation.hostname, "hw_address": reservation.hw_address}
     )
     
-    # Convert MACADDR and INET types to strings
-    res_dict = {
-        'id': db_reservation.id,
-        'network_id': db_reservation.network_id,
-        'hostname': db_reservation.hostname,
-        'hw_address': str(db_reservation.hw_address) if db_reservation.hw_address else '',
-        'ip_address': str(db_reservation.ip_address) if db_reservation.ip_address else '',
-        'comment': db_reservation.comment,
-        'enabled': db_reservation.enabled,
-        'original_config_path': db_reservation.original_config_path,
-        'created_at': db_reservation.created_at,
-        'updated_at': db_reservation.updated_at,
-    }
-    return DhcpReservation.model_validate(res_dict)
+    # Return created reservation (read back from config)
+    reservations = get_dhcp_reservations_from_config(network)
+    created = next((r for r in reservations if r['hw_address'] == reservation.hw_address), None)
+    if not created:
+        raise HTTPException(status_code=500, detail="Reservation created but not found in config")
+    
+    # Convert to DhcpReservation model
+    created['id'] = hash(f"{network}:{reservation.hw_address}") % (2**31)
+    created['network_id'] = hash(f"dhcp:{network}") % (2**31)
+    return DhcpReservation.model_validate(created)
 
 
-@router.get("/reservations/{reservation_id}", response_model=DhcpReservation)
+@router.get("/reservations/{hw_address}", response_model=DhcpReservation)
 async def get_reservation(
-    reservation_id: int,
+    hw_address: str,
+    network: str,
     _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpReservation:
-    """Get a specific DHCP reservation by ID
+    """Get a specific DHCP reservation by MAC address from config files
     
     Args:
-        reservation_id: Reservation ID
+        hw_address: MAC address (hardware address)
+        network: Network name ("homelab" or "lan")
         
     Returns:
         DHCP reservation
     """
-    result = await db.execute(
-        select(DhcpReservationDB).where(DhcpReservationDB.id == reservation_id)
-    )
-    reservation = result.scalar_one_or_none()
-    if not reservation:
-        raise HTTPException(status_code=404, detail="DHCP reservation not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    # Convert MACADDR and INET types to strings
-    res_dict = {
-        'id': reservation.id,
-        'network_id': reservation.network_id,
-        'hostname': reservation.hostname,
-        'hw_address': str(reservation.hw_address) if reservation.hw_address else '',
-        'ip_address': str(reservation.ip_address) if reservation.ip_address else '',
-        'comment': reservation.comment,
-        'enabled': reservation.enabled,
-        'original_config_path': reservation.original_config_path,
-        'created_at': reservation.created_at,
-        'updated_at': reservation.updated_at,
-    }
-    return DhcpReservation.model_validate(res_dict)
+    reservations = get_dhcp_reservations_from_config(network)
+    reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
+    
+    if not reservation:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reservation with MAC {hw_address} not found for network {network}"
+        )
+    
+    # Convert to DhcpReservation model (assigning temporary IDs)
+    reservation['id'] = hash(f"{network}:{hw_address}") % (2**31)
+    reservation['network_id'] = hash(f"dhcp:{network}") % (2**31)
+    return DhcpReservation.model_validate(reservation)
 
 
-@router.put("/reservations/{reservation_id}", response_model=DhcpReservation)
+@router.put("/reservations/{hw_address}", response_model=DhcpReservation)
 async def update_reservation(
-    reservation_id: int,
+    hw_address: str,
+    network: str,
     reservation_update: DhcpReservationUpdate,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpReservation:
-    """Update a DHCP reservation
+    """Update a DHCP reservation in config files
     
     Args:
-        reservation_id: Reservation ID
+        hw_address: MAC address (hardware address)
+        network: Network name ("homelab" or "lan")
         reservation_update: Update data
         
     Returns:
         Updated reservation
     """
-    result = await db.execute(
-        select(DhcpReservationDB).where(DhcpReservationDB.id == reservation_id)
-    )
-    reservation = result.scalar_one_or_none()
-    if not reservation:
-        raise HTTPException(status_code=404, detail="DHCP reservation not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    # If network_id is being changed, verify new network exists
-    if reservation_update.network_id is not None and reservation_update.network_id != reservation.network_id:
-        result = await db.execute(
-            select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation_update.network_id)
-        )
-        new_network = result.scalar_one_or_none()
-        if not new_network:
-            raise HTTPException(status_code=404, detail="Target DHCP network not found")
-        
-        # Check for conflicts in new network
-        if reservation_update.hw_address:
-            result = await db.execute(
-                select(DhcpReservationDB).where(
-                    DhcpReservationDB.network_id == reservation_update.network_id,
-                    DhcpReservationDB.hw_address == reservation_update.hw_address,
-                    DhcpReservationDB.id != reservation_id
-                )
-            )
-            if result.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"MAC address {reservation_update.hw_address} already reserved in target network"
-                )
-        
-        if reservation_update.ip_address:
-            result = await db.execute(
-                select(DhcpReservationDB).where(
-                    DhcpReservationDB.network_id == reservation_update.network_id,
-                    DhcpReservationDB.ip_address == reservation_update.ip_address,
-                    DhcpReservationDB.id != reservation_id
-                )
-            )
-            if result.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"IP address {reservation_update.ip_address} already reserved in target network"
-                )
+    # Verify reservation exists in config
+    reservations = get_dhcp_reservations_from_config(network)
+    existing_reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
     
-    # Check for conflicts in current network if MAC or IP is being updated
-    if reservation_update.hw_address and reservation_update.hw_address != reservation.hw_address:
-        result = await db.execute(
-            select(DhcpReservationDB).where(
-                DhcpReservationDB.network_id == reservation.network_id,
-                DhcpReservationDB.hw_address == reservation_update.hw_address,
-                DhcpReservationDB.id != reservation_id
-            )
+    if not existing_reservation:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reservation with MAC {hw_address} not found for network {network}"
         )
-        if result.scalar_one_or_none():
+    
+    # Determine new values
+    new_hw_address = reservation_update.hw_address if reservation_update.hw_address is not None else hw_address
+    new_hostname = reservation_update.hostname if reservation_update.hostname is not None else existing_reservation['hostname']
+    new_ip_address = reservation_update.ip_address if reservation_update.ip_address is not None else existing_reservation['ip_address']
+    new_comment = reservation_update.comment if reservation_update.comment is not None else existing_reservation.get('comment', '')
+    
+    # Check for conflicts if MAC or IP is being changed
+    if new_hw_address != hw_address:
+        if any(r['hw_address'] == new_hw_address for r in reservations):
             raise HTTPException(
                 status_code=400,
-                detail=f"MAC address {reservation_update.hw_address} already reserved in this network"
+                detail=f"MAC address {new_hw_address} already reserved in network {network}"
             )
     
-    if reservation_update.ip_address and reservation_update.ip_address != reservation.ip_address:
-        result = await db.execute(
-            select(DhcpReservationDB).where(
-                DhcpReservationDB.network_id == reservation.network_id,
-                DhcpReservationDB.ip_address == reservation_update.ip_address,
-                DhcpReservationDB.id != reservation_id
-            )
-        )
-        if result.scalar_one_or_none():
+    if new_ip_address != existing_reservation['ip_address']:
+        if any(r['ip_address'] == new_ip_address for r in reservations):
             raise HTTPException(
                 status_code=400,
-                detail=f"IP address {reservation_update.ip_address} already reserved in this network"
+                detail=f"IP address {new_ip_address} already reserved in network {network}"
             )
     
-    # Get network to determine network name
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
+    # If MAC address changed, delete old and create new
+    if new_hw_address != hw_address:
+        # Delete old reservation
+        update_dhcp_reservation_in_config(
+            network=network,
+            operation="delete",
+            hw_address=hw_address
+        )
+        # Create new reservation
+        update_dhcp_reservation_in_config(
+            network=network,
+            operation="add",
+            hw_address=new_hw_address,
+            hostname=new_hostname,
+            ip_address=new_ip_address,
+            comment=new_comment
+        )
+    else:
+        # Update existing reservation
+        update_dhcp_reservation_in_config(
+            network=network,
+            operation="update",
+            hw_address=hw_address,
+            hostname=new_hostname,
+            ip_address=new_ip_address,
+            comment=new_comment
+        )
+    
+    # Write config and reload service, track history
+    await _write_dhcp_config_and_reload(
+        db, network, username, "update",
+        {"hw_address": new_hw_address, "hostname": new_hostname}
     )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="Network not found")
     
-    # Store original network for config update
-    original_network = network.network
+    # Return updated reservation (read back from config)
+    reservations = get_dhcp_reservations_from_config(network)
+    updated = next((r for r in reservations if r['hw_address'] == new_hw_address), None)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Reservation not found after update")
     
-    # Update fields
-    update_data = reservation_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(reservation, field, value)
-    
-    # If network_id changed, get new network
-    if reservation_update.network_id and reservation_update.network_id != reservation.network_id:
-        result = await db.execute(
-            select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
-        )
-        network = result.scalar_one_or_none()
-        if network:
-            original_network = network.network
-    
-    await db.commit()
-    await db.refresh(reservation)
-    
-    # Write config and reload service (for both old and new network if changed)
-    networks_to_update = {original_network}
-    if reservation.network_id != reservation.network_id:
-        result = await db.execute(
-            select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
-        )
-        new_network = result.scalar_one_or_none()
-        if new_network:
-            networks_to_update.add(new_network.network)
-    
-    for net in networks_to_update:
-        await _write_dhcp_config_and_reload(
-            db, net, username, "update",
-            {"reservation_id": reservation_id, "hostname": reservation.hostname, "network_id": reservation.network_id}
-        )
-    
-    # Convert MACADDR and INET types to strings
-    res_dict = {
-        'id': reservation.id,
-        'network_id': reservation.network_id,
-        'hostname': reservation.hostname,
-        'hw_address': str(reservation.hw_address) if reservation.hw_address else '',
-        'ip_address': str(reservation.ip_address) if reservation.ip_address else '',
-        'comment': reservation.comment,
-        'enabled': reservation.enabled,
-        'original_config_path': reservation.original_config_path,
-        'created_at': reservation.created_at,
-        'updated_at': reservation.updated_at,
-    }
-    return DhcpReservation.model_validate(res_dict)
+    # Convert to DhcpReservation model
+    updated['id'] = hash(f"{network}:{new_hw_address}") % (2**31)
+    updated['network_id'] = hash(f"dhcp:{network}") % (2**31)
+    return DhcpReservation.model_validate(updated)
 
 
-@router.delete("/reservations/{reservation_id}")
+@router.delete("/reservations/{hw_address}")
 async def delete_reservation(
-    reservation_id: int,
+    hw_address: str,
+    network: str,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a DHCP reservation
+    """Delete a DHCP reservation from config files
     
     Args:
-        reservation_id: Reservation ID
+        hw_address: MAC address (hardware address)
+        network: Network name ("homelab" or "lan")
     """
-    result = await db.execute(
-        select(DhcpReservationDB).where(DhcpReservationDB.id == reservation_id)
-    )
-    reservation = result.scalar_one_or_none()
-    if not reservation:
-        raise HTTPException(status_code=404, detail="DHCP reservation not found")
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
-    # Get network before deleting
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.id == reservation.network_id)
-    )
-    network = result.scalar_one_or_none()
-    if not network:
-        raise HTTPException(status_code=404, detail="Network not found")
+    # Verify reservation exists in config
+    reservations = get_dhcp_reservations_from_config(network)
+    existing_reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
     
-    network_name = network.network
-    hostname = reservation.hostname
+    if not existing_reservation:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Reservation with MAC {hw_address} not found for network {network}"
+        )
     
-    await db.delete(reservation)
-    await db.commit()
+    # Delete reservation from config
+    try:
+        update_dhcp_reservation_in_config(
+            network=network,
+            operation="delete",
+            hw_address=hw_address
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
-    # Write config and reload service
+    # Write config and reload service, track history
     await _write_dhcp_config_and_reload(
-        db, network_name, username, "delete",
-        {"reservation_id": reservation_id, "hostname": hostname, "network_id": reservation.network_id}
+        db, network, username, "delete",
+        {"hw_address": hw_address, "hostname": existing_reservation['hostname']}
     )
     
     return {"message": "DHCP reservation deleted"}
@@ -886,7 +729,11 @@ async def revert_dhcp_config(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Revert DHCP configuration to a previous state
+    """Revert DHCP configuration to a previous state from history
+    
+    Reads config snapshot from history and writes all reservations to webui-dhcp.conf.
+    Clears existing WebUI-managed reservations first, then restores from snapshot.
+    Note: Network settings are not restored as they come from router-config.nix.
     
     Args:
         network: Network name ("homelab" or "lan")
@@ -923,48 +770,37 @@ async def revert_dhcp_config(
     # Restore configuration from snapshot
     config_snapshot = history.config_snapshot
     
-    # Delete all existing network and reservations for this network
-    result = await db.execute(
-        select(DhcpNetworkDB).where(DhcpNetworkDB.network == network)
-    )
-    dhcp_network = result.scalar_one_or_none()
-    if dhcp_network:
-        await db.delete(dhcp_network)
-    
-    # Restore network from snapshot
-    network_data = config_snapshot.get('network')
-    if network_data:
-        db_network = DhcpNetworkDB(
-            id=network_data['id'],
-            network=network,
-            enabled=network_data['enabled'],
-            start=network_data['start'],
-            end=network_data['end'],
-            lease_time=network_data['lease_time'],
-            dns_servers=network_data.get('dns_servers'),
-            dynamic_domain=network_data.get('dynamic_domain')
-        )
-        db.add(db_network)
-        await db.flush()  # Flush to get network ID
-        
-        # Restore reservations
-        for res_data in config_snapshot.get('reservations', []):
-            db_reservation = DhcpReservationDB(
-                id=res_data['id'],
-                network_id=db_network.id,
-                hostname=res_data['hostname'],
+    # Restore reservations from snapshot to config files
+    # Note: Network settings are not restored as they come from router-config.nix
+    for res_data in config_snapshot.get('reservations', []):
+        try:
+            # Add or update reservation
+            update_dhcp_reservation_in_config(
+                network=network,
+                operation="add",  # Will overwrite if exists
                 hw_address=res_data['hw_address'],
+                hostname=res_data['hostname'],
                 ip_address=res_data['ip_address'],
-                comment=res_data.get('comment'),
-                enabled=res_data['enabled']
+                comment=res_data.get('comment', '')
             )
-            db.add(db_reservation)
+        except ValueError:
+            # If reservation exists, update it
+            try:
+                update_dhcp_reservation_in_config(
+                    network=network,
+                    operation="update",
+                    hw_address=res_data['hw_address'],
+                    hostname=res_data['hostname'],
+                    ip_address=res_data['ip_address'],
+                    comment=res_data.get('comment', '')
+                )
+            except ValueError:
+                logger.warning(f"Could not restore reservation {res_data['hw_address']}")
     
     # Mark history record as reverted
     history.status = 'reverted'
     history.reverted_by = username
     history.reverted_at = datetime.utcnow()
-    
     await db.commit()
     
     # Write config and reload service
@@ -986,10 +822,10 @@ async def sync_dhcp_config(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Sync DHCP configuration from database to dnsmasq config files
+    """Sync DHCP configuration from config files to dnsmasq config files
     
-    This endpoint writes the current database state to the dnsmasq config files.
-    Useful for syncing existing records that were added before the config writer was implemented.
+    Regenerates config from current config files (router-config.nix + webui-dhcp.conf)
+    and writes it to ensure dnsmasq has the latest configuration.
     
     Args:
         network: Network name ("homelab" or "lan")
@@ -1001,8 +837,8 @@ async def sync_dhcp_config(
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
     try:
-        # Write config and reload service (without creating a history entry for sync)
-        config_content = await generate_dnsmasq_dhcp_config(db, network)
+        # Generate config from current files (router-config.nix + webui-dhcp.conf)
+        config_content = generate_dnsmasq_dhcp_config(network)
         if config_content:
             write_dhcp_config(network, config_content)
         else:
@@ -1033,10 +869,11 @@ async def import_dhcp_from_config(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Import DHCP configuration from router-config.nix to database
+    """Regenerate DHCP configuration from config files
     
-    This endpoint reads router-config.nix and syncs DHCP configuration to the database.
-    Useful for importing existing configurations that were set up before the WebUI was used.
+    Since config files are now the source of truth, this endpoint simply
+    regenerates the dnsmasq config from current config files and writes it.
+    This is equivalent to sync-config but kept for API compatibility.
     
     Args:
         network: Network name ("homelab" or "lan")
@@ -1048,19 +885,28 @@ async def import_dhcp_from_config(
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
     try:
-        # Use the existing migration function
-        await migrate_dhcp_config_to_database(db)
+        # Simply regenerate and write config (same as sync-config)
+        config_content = generate_dnsmasq_dhcp_config(network)
+        if config_content:
+            write_dhcp_config(network, config_content)
+        else:
+            # DHCP disabled - write empty file
+            write_dhcp_config(network, "# DHCP disabled\n")
         
-        logger.info(f"Imported DHCP configuration from router-config.nix for network {network}")
+        # Reload dnsmasq service
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        _control_service_via_systemctl(service_name, "reload")
+        
+        logger.info(f"DHCP config regenerated from config files for network {network}")
         
         return {
-            "message": f"DHCP configuration imported from router-config.nix",
+            "message": f"DHCP configuration regenerated from config files",
             "network": network
         }
     except Exception as e:
-        logger.error(f"Failed to import DHCP config for network {network}: {e}", exc_info=True)
+        logger.error(f"Failed to regenerate DHCP config for network {network}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to import DHCP config: {str(e)}"
+            detail=f"Failed to regenerate DHCP config: {str(e)}"
         )
 
