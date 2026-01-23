@@ -230,7 +230,7 @@ export function Dhcp() {
 
   const openReservationsView = async (network: DhcpNetwork) => {
     setSelectedNetwork(network);
-    await fetchReservations(network.id);
+    await fetchReservations(network.network);
     setReservationsViewModalOpen(true);
   };
 

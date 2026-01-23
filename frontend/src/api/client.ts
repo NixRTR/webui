@@ -426,28 +426,45 @@ class APIClient {
   }
 
   // DNS Record methods
-  async getDnsRecords(zoneId: number): Promise<DnsRecord[]> {
-    const response = await this.client.get<DnsRecord[]>(`/api/dns/zones/${zoneId}/records`);
+  async getDnsRecords(zoneName: string, network: string): Promise<DnsRecord[]> {
+    const encodedZoneName = encodeURIComponent(zoneName);
+    const response = await this.client.get<DnsRecord[]>(`/api/dns/zones/${encodedZoneName}/records`, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async createDnsRecord(zoneId: number, record: DnsRecordCreate): Promise<DnsRecord> {
-    const response = await this.client.post<DnsRecord>(`/api/dns/zones/${zoneId}/records`, record);
+  async createDnsRecord(zoneName: string, network: string, record: DnsRecordCreate): Promise<DnsRecord> {
+    const encodedZoneName = encodeURIComponent(zoneName);
+    // Remove zone_id from payload as it's no longer needed
+    const { zone_id, ...recordPayload } = record;
+    const response = await this.client.post<DnsRecord>(`/api/dns/zones/${encodedZoneName}/records`, recordPayload, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async getDnsRecord(recordId: number): Promise<DnsRecord> {
-    const response = await this.client.get<DnsRecord>(`/api/dns/records/${recordId}`);
+  async getDnsRecord(recordName: string, network: string, zoneName: string): Promise<DnsRecord> {
+    const encodedRecordName = encodeURIComponent(recordName);
+    const response = await this.client.get<DnsRecord>(`/api/dns/records/${encodedRecordName}`, {
+      params: { network, zone_name: zoneName }
+    });
     return response.data;
   }
 
-  async updateDnsRecord(recordId: number, record: DnsRecordUpdate): Promise<DnsRecord> {
-    const response = await this.client.put<DnsRecord>(`/api/dns/records/${recordId}`, record);
+  async updateDnsRecord(recordName: string, network: string, zoneName: string, record: DnsRecordUpdate): Promise<DnsRecord> {
+    const encodedRecordName = encodeURIComponent(recordName);
+    const response = await this.client.put<DnsRecord>(`/api/dns/records/${encodedRecordName}`, record, {
+      params: { network, zone_name: zoneName }
+    });
     return response.data;
   }
 
-  async deleteDnsRecord(recordId: number): Promise<{ message: string }> {
-    const response = await this.client.delete<{ message: string }>(`/api/dns/records/${recordId}`);
+  async deleteDnsRecord(recordName: string, network: string, zoneName: string): Promise<{ message: string }> {
+    const encodedRecordName = encodeURIComponent(recordName);
+    const response = await this.client.delete<{ message: string }>(`/api/dns/records/${encodedRecordName}`, {
+      params: { network, zone_name: zoneName }
+    });
     return response.data;
   }
 
@@ -486,9 +503,7 @@ class APIClient {
   }
 
   async createDhcpReservation(network: string, reservation: DhcpReservationCreate): Promise<DhcpReservation> {
-    // Remove network_id from payload as it's no longer needed
-    const { network_id, ...reservationPayload } = reservation;
-    const response = await this.client.post<DhcpReservation>(`/api/dhcp/networks/${network}/reservations`, reservationPayload);
+    const response = await this.client.post<DhcpReservation>(`/api/dhcp/networks/${network}/reservations`, reservation);
     return response.data;
   }
 

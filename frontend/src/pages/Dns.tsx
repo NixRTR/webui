@@ -218,7 +218,7 @@ export function Dns() {
 
   const openRecordsView = async (zone: DnsZone) => {
     setSelectedZone(zone);
-    await fetchRecords(zone.id);
+    await fetchRecords(zone.name, zone.network);
     setRecordsViewModalOpen(true);
   };
 
