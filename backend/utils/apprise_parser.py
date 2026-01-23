@@ -40,26 +40,58 @@ def parse_apprise_nix_file() -> Optional[Dict]:
         }
         
         # Extract top-level enable (must be at the start of the file, before services block)
-        # Look for "enable = true/false" that appears before "services = {"
-        services_pos = content.find('services')
-        if services_pos == -1:
-            services_pos = len(content)  # If no services block, search entire file
+        # Find the opening brace of the root attribute set
+        root_brace_start = content.find('{')
+        if root_brace_start == -1:
+            logger.error("Could not find root attribute set opening brace")
+            return None
+        
+        # Find the services block more precisely - look for "services = {" pattern
+        services_match = re.search(r'services\s*=\s*\{', content)
+        if services_match:
+            services_pos = services_match.start()
+            # Extract top-level section (between root { and services = {)
+            top_level_section = content[root_brace_start + 1:services_pos]
+        else:
+            # If no services block, search from root brace to closing brace
+            # Find matching closing brace for root
+            brace_depth = 0
+            root_brace_end = -1
+            for i in range(root_brace_start, len(content)):
+                if content[i] == '{':
+                    brace_depth += 1
+                elif content[i] == '}':
+                    brace_depth -= 1
+                    if brace_depth == 0:
+                        root_brace_end = i
+                        break
+            if root_brace_end == -1:
+                top_level_section = content[root_brace_start + 1:]
+            else:
+                top_level_section = content[root_brace_start + 1:root_brace_end]
         
         # Search for enable in the top-level section (before services)
-        top_level_section = content[:services_pos]
-        enable_match = re.search(r'enable\s*=\s*(true|false)', top_level_section)
+        # Match "enable = true" or "enable = false" (with optional semicolon)
+        # Use word boundary to avoid matching inside other words
+        enable_match = re.search(r'\benable\s*=\s*(true|false)\b', top_level_section, re.IGNORECASE)
         if enable_match:
-            config['enable'] = enable_match.group(1) == 'true'
+            config['enable'] = enable_match.group(1).lower() == 'true'
+            logger.info(f"Parsed Apprise enable: {enable_match.group(1)} -> {config['enable']}")
+        else:
+            logger.warning(f"Could not find 'enable' field in top-level section. Using default: {config['enable']}")
+            logger.debug(f"Top-level section preview: {top_level_section[:300]}")
         
         # Extract port (also top-level, before services)
-        port_match = re.search(r'port\s*=\s*(\d+)', top_level_section)
+        port_match = re.search(r'\bport\s*=\s*(\d+)', top_level_section)
         if port_match:
             config['port'] = int(port_match.group(1))
+            logger.debug(f"Found port value: {config['port']}")
         
         # Extract attachSize (also top-level, before services)
-        attach_match = re.search(r'attachSize\s*=\s*(\d+)', top_level_section)
+        attach_match = re.search(r'\battachSize\s*=\s*(\d+)', top_level_section)
         if attach_match:
             config['attachSize'] = int(attach_match.group(1))
+            logger.debug(f"Found attachSize value: {config['attachSize']}")
         
         # Extract services block
         services_match = re.search(r'services\s*=\s*\{', content)
