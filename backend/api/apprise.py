@@ -623,14 +623,14 @@ async def test_service_by_id(
         )
 
 
-@router.get("/config")
-async def get_config(
+@router.get("/config-status")
+async def get_config_status(
     _: str = Depends(get_current_user)
 ) -> dict:
     """Get Apprise configuration status
     
     Returns:
-        Dictionary with configuration information
+        Dictionary with configuration information (enabled, services_count, config_file_exists)
     """
     enabled = is_apprise_enabled()
     
