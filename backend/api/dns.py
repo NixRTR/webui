@@ -138,9 +138,18 @@ async def _write_dns_config_and_reload(
         
         # Reload dnsmasq service
         service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
-        _control_service_via_systemctl(service_name, "reload")
-        
-        logger.info(f"DNS config written and service reloaded for network {network}")
+        try:
+            _control_service_via_systemctl(service_name, "reload")
+            logger.info(f"DNS config written and service reloaded for network {network}")
+        except Exception as reload_error:
+            logger.warning(f"Failed to reload {service_name}, trying restart: {reload_error}")
+            # If reload fails, try restart as fallback
+            try:
+                _control_service_via_systemctl(service_name, "restart")
+                logger.info(f"DNS config written and service restarted for network {network}")
+            except Exception as restart_error:
+                logger.error(f"Failed to restart {service_name}: {restart_error}")
+                # Don't raise - allow the API call to succeed even if service control fails
     except Exception as e:
         logger.error(f"Failed to write DNS config for network {network}: {e}", exc_info=True)
         # Don't raise - allow the API call to succeed even if config write fails
