@@ -564,7 +564,6 @@ class DnsRecordBase(BaseModel):
 
 class DnsRecordCreate(DnsRecordBase):
     """Model for creating a DNS record"""
-    zone_id: int = Field(..., description="Zone ID this record belongs to")
     original_config_path: Optional[str] = None  # Used for migration tracking
 
 
@@ -725,7 +724,6 @@ class DhcpReservationBase(BaseModel):
 
 class DhcpReservationCreate(DhcpReservationBase):
     """Model for creating a DHCP reservation"""
-    network_id: int = Field(..., description="Network ID this reservation belongs to")
     original_config_path: Optional[str] = None  # Used for migration tracking
 
 
