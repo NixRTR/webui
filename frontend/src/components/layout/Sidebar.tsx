@@ -33,6 +33,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const [githubStats, setGitHubStats] = useState<{ stars: number; forks: number } | null>(null);
   const [cakeEnabled, setCakeEnabled] = useState(false);
   const [appriseEnabled, setAppriseEnabled] = useState(false);
+  const [configExpanded, setConfigExpanded] = useState(false);
 
   useEffect(() => {
     // Fetch GitHub stats on mount
@@ -114,6 +115,14 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
     { path: '/dhcp', label: 'DHCP', icon: HiServer },
   ];
   const configPath = '/config';
+  
+  // Auto-expand Config menu when any child route is active
+  const isConfigActive = isParentActive(configPath, configChildren);
+  useEffect(() => {
+    if (isConfigActive) {
+      setConfigExpanded(true);
+    }
+  }, [isConfigActive]);
 
   return (
     <>
@@ -197,19 +206,21 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 Speedtest
               </FlowbiteSidebar.Item>
 
-              {/* Config Menu - Custom collapsible structure matching docs pattern */}
+              {/* Settings Menu - Custom collapsible structure matching docs pattern */}
               <li>
-                <div
-                  className={`flex items-center p-2 rounded-lg ${
-                    isParentActive(configPath, configChildren)
+                <button
+                  type="button"
+                  onClick={() => setConfigExpanded(!configExpanded)}
+                  className={`flex items-center w-full p-2 rounded-lg ${
+                    isConfigActive
                       ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
                       : 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
                   }`}
                 >
                   <HiCog className="w-5 h-5 mr-3" />
-                  <span>Config</span>
-                </div>
-                {isParentActive(configPath, configChildren) && (
+                  <span>Settings</span>
+                </button>
+                {configExpanded && (
                   <ul className="ml-6 mt-2 space-y-1">
                     {configChildren.map((child) => {
                       const IconComponent = child.icon;
