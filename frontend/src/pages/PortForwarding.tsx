@@ -131,9 +131,14 @@ export function PortForwarding() {
   if (loading) {
     return (
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar username={username} onLogout={handleLogout} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+          <Navbar
+            hostname="nixos-router"
+            username={username}
+            connectionStatus={connectionStatus}
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          />
           <main className="flex-1 overflow-y-auto p-6">
             <div className="text-center text-gray-600 dark:text-gray-400">Loading...</div>
           </main>
@@ -144,9 +149,14 @@ export function PortForwarding() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar username={username} onLogout={handleLogout} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+        <Navbar
+          hostname="nixos-router"
+          username={username}
+          connectionStatus={connectionStatus}
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+        />
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-6">

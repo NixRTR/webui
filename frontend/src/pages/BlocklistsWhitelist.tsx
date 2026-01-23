@@ -3,13 +3,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, TextInput, Label, Select, Alert, Table, ToggleSwitch, Badge } from 'flowbite-react';
+import { Card, Button, TextInput, Label, Select, Alert, Table, ToggleSwitch } from 'flowbite-react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiShieldCheck, HiPlus, HiTrash } from 'react-icons/hi';
-import type { BlocklistsConfig, BlocklistsConfigUpdate, BlocklistItem } from '../types/blocklists';
+import type { BlocklistsConfig, BlocklistsConfigUpdate } from '../types/blocklists';
 import type { WhitelistConfig, WhitelistConfigUpdate } from '../types/whitelist';
 
 export function BlocklistsWhitelist() {
@@ -18,7 +18,6 @@ export function BlocklistsWhitelist() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   
@@ -66,7 +65,6 @@ export function BlocklistsWhitelist() {
   };
 
   const handleBlocklistToggle = async (network: 'homelab' | 'lan', enable: boolean) => {
-    setSaving(true);
     setError(null);
     try {
       const current = network === 'homelab' ? blocklistsHomelab : blocklistsLan;
@@ -87,13 +85,10 @@ export function BlocklistsWhitelist() {
       setSuccess(`Blocklists ${enable ? 'enabled' : 'disabled'} for ${network.toUpperCase()}`);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to update blocklists');
-    } finally {
-      setSaving(false);
     }
   };
 
   const handleBlocklistItemToggle = async (network: 'homelab' | 'lan', blocklistName: string, enable: boolean) => {
-    setSaving(true);
     setError(null);
     try {
       const current = network === 'homelab' ? blocklistsHomelab : blocklistsLan;
@@ -122,8 +117,6 @@ export function BlocklistsWhitelist() {
       setSuccess(`Blocklist ${blocklistName} ${enable ? 'enabled' : 'disabled'} for ${network.toUpperCase()}`);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to update blocklist');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -133,7 +126,6 @@ export function BlocklistsWhitelist() {
       return;
     }
     
-    setSaving(true);
     setError(null);
     try {
       const current = newDomainNetwork === 'homelab' ? whitelistHomelab : whitelistLan;
@@ -155,13 +147,10 @@ export function BlocklistsWhitelist() {
       setSuccess(`Domain added to ${newDomainNetwork.toUpperCase()} whitelist`);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to add domain');
-    } finally {
-      setSaving(false);
     }
   };
 
   const handleRemoveDomain = async (network: 'homelab' | 'lan', domain: string) => {
-    setSaving(true);
     setError(null);
     try {
       const current = network === 'homelab' ? whitelistHomelab : whitelistLan;
@@ -182,8 +171,6 @@ export function BlocklistsWhitelist() {
       setSuccess(`Domain removed from ${network.toUpperCase()} whitelist`);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to remove domain');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -196,9 +183,14 @@ export function BlocklistsWhitelist() {
   if (loading) {
     return (
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar username={username} onLogout={handleLogout} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+          <Navbar
+            hostname="nixos-router"
+            username={username}
+            connectionStatus={connectionStatus}
+            onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+          />
           <main className="flex-1 overflow-y-auto p-6">
             <div className="text-center text-gray-600 dark:text-gray-400">Loading...</div>
           </main>
@@ -209,9 +201,14 @@ export function BlocklistsWhitelist() {
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
-      <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar username={username} onLogout={handleLogout} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+        <Navbar
+          hostname="nixos-router"
+          username={username}
+          connectionStatus={connectionStatus}
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+        />
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex items-center mb-6">

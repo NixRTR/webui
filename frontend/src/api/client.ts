@@ -338,17 +338,6 @@ class APIClient {
     return response.data;
   }
 
-  async getAppriseConfig(): Promise<{
-    enabled: boolean;
-    services_count: number;
-    config_file_exists: boolean;
-    services?: string[];
-    error?: string;
-  }> {
-    const response = await this.client.get('/api/apprise/config');
-    return response.data;
-  }
-
   async sendAppriseNotification(
     body: string,
     title?: string,
