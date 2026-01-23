@@ -30,7 +30,6 @@ export function AppriseConfig() {
   // Test state
   const [testingService, setTestingService] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
-  const [testResult, setTestResult] = useState<{ service?: string; success: boolean; message: string } | null>(null);
   
   const { connectionStatus } = useMetrics(token);
 
@@ -176,16 +175,10 @@ export function AppriseConfig() {
 
   const handleTestService = async (serviceName: string) => {
     setTestingService(serviceName);
-    setTestResult(null);
     setError(null);
     
     try {
       const result = await apiClient.testAppriseServiceByName(serviceName);
-      setTestResult({
-        service: serviceName,
-        success: result.success,
-        message: result.message || (result.success ? 'Test sent successfully' : 'Test failed')
-      });
       
       if (result.success) {
         setSuccess(`Test notification sent to ${serviceName}`);
@@ -196,11 +189,6 @@ export function AppriseConfig() {
       }
     } catch (err: any) {
       const errorMsg = err?.response?.data?.detail || err.message || 'Failed to send test notification';
-      setTestResult({
-        service: serviceName,
-        success: false,
-        message: errorMsg
-      });
       setError(`Failed to send test to ${serviceName}: ${errorMsg}`);
       setTimeout(() => setError(null), 5000);
     } finally {
@@ -210,15 +198,10 @@ export function AppriseConfig() {
 
   const handleTestAll = async () => {
     setTestingAll(true);
-    setTestResult(null);
     setError(null);
     
     try {
       const result = await apiClient.testAllAppriseServices();
-      setTestResult({
-        success: result.success,
-        message: result.message || (result.success ? 'Test sent to all services' : 'Test failed')
-      });
       
       if (result.success) {
         setSuccess('Test notification sent to all enabled services');
@@ -229,10 +212,6 @@ export function AppriseConfig() {
       }
     } catch (err: any) {
       const errorMsg = err?.response?.data?.detail || err.message || 'Failed to send test notification';
-      setTestResult({
-        success: false,
-        message: errorMsg
-      });
       setError(`Failed to send test: ${errorMsg}`);
       setTimeout(() => setError(null), 5000);
     } finally {
