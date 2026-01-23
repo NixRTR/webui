@@ -34,8 +34,6 @@ interface SidebarProps {
 export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const [githubStats, setGitHubStats] = useState<{ stars: number; forks: number } | null>(null);
-  const [cakeEnabled, setCakeEnabled] = useState(false);
-  const [appriseEnabled, setAppriseEnabled] = useState(false);
   const [configExpanded, setConfigExpanded] = useState(false);
 
   useEffect(() => {
@@ -51,46 +49,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
       }
     };
     fetchGitHubStats();
-  }, []);
-
-  useEffect(() => {
-    // Check CAKE status on mount
-    const checkCakeStatus = async () => {
-      try {
-        console.log('Checking CAKE status...');
-        const status = await apiClient.getCakeStatus();
-        console.log('CAKE status response:', status);
-        setCakeEnabled(status.enabled);
-      } catch (error) {
-        console.error('Failed to check CAKE status:', error);
-        console.error('Error details:', error);
-        setCakeEnabled(false);
-      }
-    };
-    checkCakeStatus();
-    // Re-check every minute
-    const interval = setInterval(checkCakeStatus, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    // Check Apprise status on mount
-    const checkAppriseStatus = async () => {
-      try {
-        console.log('Checking Apprise status...');
-        const status = await apiClient.getAppriseStatus();
-        console.log('Apprise status response:', status);
-        setAppriseEnabled(status.enabled);
-      } catch (error) {
-        console.error('Failed to check Apprise status:', error);
-        console.error('Error details:', error);
-        setAppriseEnabled(false);
-      }
-    };
-    checkAppriseStatus();
-    // Re-check every minute
-    const interval = setInterval(checkAppriseStatus, 60000);
-    return () => clearInterval(interval);
   }, []);
 
   const handleItemClick = () => {
