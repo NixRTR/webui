@@ -19,6 +19,11 @@ const TrafficShaping = lazy(() => import('./pages/TrafficShaping').then(m => ({ 
 const Notifications = lazy(() => import('./pages/Notifications').then(m => ({ default: m.Notifications })));
 const Dns = lazy(() => import('./pages/Dns').then(m => ({ default: m.Dns })));
 const Dhcp = lazy(() => import('./pages/Dhcp').then(m => ({ default: m.Dhcp })));
+const CakeConfig = lazy(() => import('./pages/CakeConfig').then(m => ({ default: m.CakeConfig })));
+const AppriseConfig = lazy(() => import('./pages/AppriseConfig').then(m => ({ default: m.AppriseConfig })));
+const DynDnsConfig = lazy(() => import('./pages/DynDnsConfig').then(m => ({ default: m.DynDnsConfig })));
+const PortForwarding = lazy(() => import('./pages/PortForwarding').then(m => ({ default: m.PortForwarding })));
+const BlocklistsWhitelist = lazy(() => import('./pages/BlocklistsWhitelist').then(m => ({ default: m.BlocklistsWhitelist })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -173,6 +178,56 @@ export default function App() {
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
                 <Dhcp />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/cake"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <CakeConfig />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/apprise"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <AppriseConfig />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/dyndns"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <DynDnsConfig />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/port-forwarding"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <PortForwarding />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/blocklists-whitelist"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <BlocklistsWhitelist />
               </Suspense>
             </ProtectedRoute>
           }

@@ -31,6 +31,31 @@ import type {
   DhcpReservationCreate,
   DhcpReservationUpdate,
 } from '../types/dhcp';
+import type {
+  CakeConfig,
+  CakeConfigUpdate,
+} from '../types/cake';
+import type {
+  AppriseConfig,
+  AppriseConfigUpdate,
+} from '../types/apprise-config';
+import type {
+  DynDnsConfig,
+  DynDnsConfigUpdate,
+} from '../types/dyndns';
+import type {
+  PortForwardingRule,
+  PortForwardingRuleCreate,
+  PortForwardingRuleUpdate,
+} from '../types/port-forwarding';
+import type {
+  BlocklistsConfig,
+  BlocklistsConfigUpdate,
+} from '../types/blocklists';
+import type {
+  WhitelistConfig,
+  WhitelistConfigUpdate,
+} from '../types/whitelist';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -566,6 +591,82 @@ class APIClient {
 
   async controlDhcpService(network: 'homelab' | 'lan', action: 'start' | 'stop' | 'restart' | 'reload'): Promise<{ message: string }> {
     const response = await this.client.post(`/api/dhcp/service/${network}/${action}`);
+    return response.data;
+  }
+
+  // CAKE Configuration
+  async getCakeConfig(): Promise<CakeConfig> {
+    const response = await this.client.get<CakeConfig>('/api/cake/config');
+    return response.data;
+  }
+
+  async updateCakeConfig(config: CakeConfigUpdate): Promise<CakeConfig> {
+    const response = await this.client.put<CakeConfig>('/api/cake/config', config);
+    return response.data;
+  }
+
+  // Apprise Configuration
+  async getAppriseConfig(): Promise<AppriseConfig> {
+    const response = await this.client.get<AppriseConfig>('/api/apprise/config');
+    return response.data;
+  }
+
+  async updateAppriseConfig(config: AppriseConfigUpdate): Promise<AppriseConfig> {
+    const response = await this.client.put<AppriseConfig>('/api/apprise/config', config);
+    return response.data;
+  }
+
+  // Dynamic DNS Configuration
+  async getDynDnsConfig(): Promise<DynDnsConfig> {
+    const response = await this.client.get<DynDnsConfig>('/api/dyndns/config');
+    return response.data;
+  }
+
+  async updateDynDnsConfig(config: DynDnsConfigUpdate): Promise<DynDnsConfig> {
+    const response = await this.client.put<DynDnsConfig>('/api/dyndns/config', config);
+    return response.data;
+  }
+
+  // Port Forwarding
+  async getPortForwardingRules(): Promise<PortForwardingRule[]> {
+    const response = await this.client.get<PortForwardingRule[]>('/api/port-forwarding');
+    return response.data;
+  }
+
+  async createPortForwardingRule(rule: PortForwardingRuleCreate): Promise<PortForwardingRule> {
+    const response = await this.client.post<PortForwardingRule>('/api/port-forwarding', rule);
+    return response.data;
+  }
+
+  async updatePortForwardingRule(index: number, rule: PortForwardingRuleUpdate): Promise<PortForwardingRule> {
+    const response = await this.client.put<PortForwardingRule>(`/api/port-forwarding/${index}`, rule);
+    return response.data;
+  }
+
+  async deletePortForwardingRule(index: number): Promise<{ message: string }> {
+    const response = await this.client.delete<{ message: string }>(`/api/port-forwarding/${index}`);
+    return response.data;
+  }
+
+  // Blocklists
+  async getBlocklists(network: 'homelab' | 'lan'): Promise<BlocklistsConfig> {
+    const response = await this.client.get<BlocklistsConfig>(`/api/blocklists/${network}`);
+    return response.data;
+  }
+
+  async updateBlocklists(network: 'homelab' | 'lan', config: BlocklistsConfigUpdate): Promise<BlocklistsConfig> {
+    const response = await this.client.put<BlocklistsConfig>(`/api/blocklists/${network}`, config);
+    return response.data;
+  }
+
+  // Whitelist
+  async getWhitelist(network: 'homelab' | 'lan'): Promise<WhitelistConfig> {
+    const response = await this.client.get<WhitelistConfig>(`/api/whitelist/${network}`);
+    return response.data;
+  }
+
+  async updateWhitelist(network: 'homelab' | 'lan', config: WhitelistConfigUpdate): Promise<WhitelistConfig> {
+    const response = await this.client.put<WhitelistConfig>(`/api/whitelist/${network}`, config);
     return response.data;
   }
 }

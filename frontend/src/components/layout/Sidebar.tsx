@@ -18,6 +18,9 @@ import {
   HiGlobe,
   HiServer,
   HiCog,
+  HiShieldCheck,
+  HiArrowRight,
+  HiRefresh,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
 import { apiClient } from '../../api/client';
@@ -107,17 +110,22 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
     return false;
   };
 
-  // Define Config menu structure
+  // Define Settings menu structure - ordered as specified
   const configChildren = [
-    ...(cakeEnabled ? [{ path: '/traffic-shaping', label: 'Traffic Shaping', icon: HiTrendingUp }] : []),
-    ...(appriseEnabled ? [{ path: '/notifications', label: 'Notifications', icon: HiBell }] : []),
-    { path: '/dns', label: 'DNS', icon: HiGlobe },
+    ...(cakeEnabled ? [{ path: '/settings/cake', label: 'CAKE', icon: HiTrendingUp }] : []),
     { path: '/dhcp', label: 'DHCP', icon: HiServer },
+    { path: '/dns', label: 'DNS', icon: HiGlobe },
+    { path: '/settings/blocklists-whitelist', label: 'DNS Blocklists', icon: HiShieldCheck },
+    { path: '/settings/port-forwarding', label: 'Port Forwarding', icon: HiArrowRight },
+    { path: '/settings/dyndns', label: 'Dynamic DNS', icon: HiRefresh },
+    ...(appriseEnabled ? [{ path: '/settings/apprise', label: 'Notifications', icon: HiBell }] : []),
   ];
-  const configPath = '/config';
-  
-  // Auto-expand Config menu when any child route is active
-  const isConfigActive = isParentActive(configPath, configChildren);
+  // Auto-expand Settings menu when any child route is active
+  const isConfigActive = isParentActive('/settings', configChildren) || 
+                         isActive('/dns') || 
+                         isActive('/dhcp') ||
+                         isActive('/traffic-shaping') ||
+                         isActive('/notifications');
   useEffect(() => {
     if (isConfigActive) {
       setConfigExpanded(true);

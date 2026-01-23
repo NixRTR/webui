@@ -46,6 +46,12 @@ from .api.apprise import router as apprise_router
 from .api.notifications import router as notifications_router
 from .api.dns import router as dns_router
 from .api.dhcp import router as dhcp_router
+from .api.cake_config import router as cake_config_router
+from .api.apprise_config import router as apprise_config_router
+from .api.dyndns_config import router as dyndns_config_router
+from .api.port_forwarding import router as port_forwarding_router
+from .api.blocklists import router as blocklists_router
+from .api.whitelist import router as whitelist_router
 from .utils.redis_client import close_redis_client
 from .utils.apprise import migrate_secrets_to_database
 from .utils.dns import migrate_dns_config_to_database
@@ -146,6 +152,12 @@ app.include_router(apprise_router)
 app.include_router(notifications_router)
 app.include_router(dns_router)
 app.include_router(dhcp_router)
+app.include_router(cake_config_router)
+app.include_router(apprise_config_router)
+app.include_router(dyndns_config_router)
+app.include_router(port_forwarding_router)
+app.include_router(blocklists_router)
+app.include_router(whitelist_router)
 
 
 @app.get("/api")

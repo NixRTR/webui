@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     dns_lan_file: str = "/etc/nixos/config/dnsmasq/dns-lan.nix"
     dhcp_homelab_file: str = "/etc/nixos/config/dnsmasq/dhcp-homelab.nix"
     dhcp_lan_file: str = "/etc/nixos/config/dnsmasq/dhcp-lan.nix"
+    cake_config_file: str = "/etc/nixos/config/cake.nix"
+    apprise_config_file: str = "/etc/nixos/config/apprise.nix"
+    dyndns_config_file: str = "/etc/nixos/config/dyndns.nix"
+    port_forwarding_config_file: str = "/etc/nixos/config/port-forwarding.nix"
+    blocklists_homelab_file: str = "/etc/nixos/config/dnsmasq/blocklists-homelab.nix"
+    blocklists_lan_file: str = "/etc/nixos/config/dnsmasq/blocklists-lan.nix"
+    whitelist_homelab_file: str = "/etc/nixos/config/dnsmasq/whitelist-homelab.nix"
+    whitelist_lan_file: str = "/etc/nixos/config/dnsmasq/whitelist-lan.nix"
     
     # Historical Data Retention
     metrics_retention_days: int = 30

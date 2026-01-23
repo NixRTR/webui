@@ -771,3 +771,160 @@ class DhcpReservation(DhcpReservationBase):
     class Config:
         from_attributes = True
 
+
+# CAKE Configuration Models
+class CakeConfig(BaseModel):
+    """CAKE traffic shaping configuration"""
+    enable: bool
+    aggressiveness: str = Field(..., pattern="^(auto|conservative|moderate|aggressive)$")
+    uploadBandwidth: Optional[str] = None
+    downloadBandwidth: Optional[str] = None
+
+
+class CakeConfigUpdate(BaseModel):
+    """Model for updating CAKE configuration"""
+    enable: Optional[bool] = None
+    aggressiveness: Optional[str] = Field(None, pattern="^(auto|conservative|moderate|aggressive)$")
+    uploadBandwidth: Optional[str] = None
+    downloadBandwidth: Optional[str] = None
+
+
+# Apprise Configuration Models
+class AppriseServiceConfig(BaseModel):
+    """Configuration for a single Apprise service"""
+    enable: bool
+    smtpHost: Optional[str] = None
+    smtpPort: Optional[int] = None
+    username: Optional[str] = None
+    to: Optional[str] = None
+    from_: Optional[str] = Field(None, alias="from", serialization_alias="from")
+    host: Optional[str] = None
+    port: Optional[int] = None
+    useHttps: Optional[bool] = None
+    chatId: Optional[str] = None
+    topic: Optional[str] = None
+    server: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
+
+
+class AppriseConfig(BaseModel):
+    """Apprise API configuration"""
+    enable: bool
+    port: int = Field(..., ge=1, le=65535)
+    attachSize: int = Field(..., ge=0)
+    services: Dict[str, AppriseServiceConfig] = Field(default_factory=dict)
+
+
+class AppriseConfigUpdate(BaseModel):
+    """Model for updating Apprise configuration"""
+    enable: Optional[bool] = None
+    port: Optional[int] = Field(None, ge=1, le=65535)
+    attachSize: Optional[int] = Field(None, ge=0)
+    services: Optional[Dict[str, AppriseServiceConfig]] = None
+
+
+# Dynamic DNS Configuration Models
+class DynDnsConfig(BaseModel):
+    """Dynamic DNS configuration"""
+    enable: bool
+    provider: str
+    domain: str
+    subdomain: str
+    domainId: int
+    recordId: int
+    checkInterval: str
+
+
+class DynDnsConfigUpdate(BaseModel):
+    """Model for updating Dynamic DNS configuration"""
+    enable: Optional[bool] = None
+    provider: Optional[str] = None
+    domain: Optional[str] = None
+    subdomain: Optional[str] = None
+    domainId: Optional[int] = None
+    recordId: Optional[int] = None
+    checkInterval: Optional[str] = None
+
+
+# Port Forwarding Models
+class PortForwardingRuleBase(BaseModel):
+    """Base port forwarding rule model"""
+    proto: str = Field(..., pattern="^(both|tcp|udp)$")
+    externalPort: int = Field(..., ge=1, le=65535)
+    destination: str
+    destinationPort: int = Field(..., ge=1, le=65535)
+    
+    @field_validator('destination')
+    @classmethod
+    def validate_ip(cls, v: str) -> str:
+        """Validate IP address"""
+        try:
+            IPv4Address(v)
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v}")
+
+
+class PortForwardingRuleCreate(PortForwardingRuleBase):
+    """Model for creating a port forwarding rule"""
+    pass
+
+
+class PortForwardingRuleUpdate(BaseModel):
+    """Model for updating a port forwarding rule"""
+    proto: Optional[str] = Field(None, pattern="^(both|tcp|udp)$")
+    externalPort: Optional[int] = Field(None, ge=1, le=65535)
+    destination: Optional[str] = None
+    destinationPort: Optional[int] = Field(None, ge=1, le=65535)
+    
+    @field_validator('destination')
+    @classmethod
+    def validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        """Validate IP address"""
+        if v is None:
+            return v
+        try:
+            IPv4Address(v)
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v}")
+
+
+class PortForwardingRule(PortForwardingRuleBase):
+    """Port forwarding rule model"""
+    index: int  # Index in the array
+
+
+# Blocklists Configuration Models
+class BlocklistItem(BaseModel):
+    """Individual blocklist configuration"""
+    enable: bool
+    url: str
+    description: str
+    updateInterval: str
+
+
+class BlocklistsConfig(BaseModel):
+    """Blocklists configuration for a network"""
+    enable: bool  # Master switch
+    blocklists: Dict[str, BlocklistItem] = Field(default_factory=dict)
+
+
+class BlocklistsConfigUpdate(BaseModel):
+    """Model for updating blocklists configuration"""
+    enable: Optional[bool] = None
+    blocklists: Optional[Dict[str, BlocklistItem]] = None
+
+
+# Whitelist Configuration Models
+class WhitelistConfig(BaseModel):
+    """Whitelist configuration for a network"""
+    domains: List[str] = Field(default_factory=list)
+
+
+class WhitelistConfigUpdate(BaseModel):
+    """Model for updating whitelist configuration"""
+    domains: Optional[List[str]] = None
+

@@ -115,6 +115,88 @@ def write_dhcp_nix_config(network: str, config_content: str) -> None:
     _send_command(f"write-nix-dhcp {network}", config_content)
 
 
+def write_cake_nix_config(config_content: str) -> None:
+    """Write CAKE Nix configuration file via socket-activated helper service
+    
+    Args:
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+    """
+    _send_command("write-nix-cake", config_content)
+
+
+def write_apprise_nix_config(config_content: str) -> None:
+    """Write Apprise Nix configuration file via socket-activated helper service
+    
+    Args:
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+    """
+    _send_command("write-nix-apprise", config_content)
+
+
+def write_dyndns_nix_config(config_content: str) -> None:
+    """Write Dynamic DNS Nix configuration file via socket-activated helper service
+    
+    Args:
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+    """
+    _send_command("write-nix-dyndns", config_content)
+
+
+def write_port_forwarding_nix_config(config_content: str) -> None:
+    """Write Port Forwarding Nix configuration file via socket-activated helper service
+    
+    Args:
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+    """
+    _send_command("write-nix-port-forwarding", config_content)
+
+
+def write_blocklists_nix_config(network: str, config_content: str) -> None:
+    """Write Blocklists Nix configuration file via socket-activated helper service
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        ValueError: If network is invalid
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
+    _send_command(f"write-nix-blocklists {network}", config_content)
+
+
+def write_whitelist_nix_config(network: str, config_content: str) -> None:
+    """Write Whitelist Nix configuration file via socket-activated helper service
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        config_content: Nix configuration content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        ValueError: If network is invalid
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
+    _send_command(f"write-nix-whitelist {network}", config_content)
+
+
 def _send_command(command: str, content: Optional[str]) -> None:
     """Send command and content to config writer socket
     
