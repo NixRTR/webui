@@ -39,18 +39,25 @@ def parse_apprise_nix_file() -> Optional[Dict]:
             'services': {}
         }
         
-        # Extract enable
-        enable_match = re.search(r'enable\s*=\s*(true|false)', content)
+        # Extract top-level enable (must be at the start of the file, before services block)
+        # Look for "enable = true/false" that appears before "services = {"
+        services_pos = content.find('services')
+        if services_pos == -1:
+            services_pos = len(content)  # If no services block, search entire file
+        
+        # Search for enable in the top-level section (before services)
+        top_level_section = content[:services_pos]
+        enable_match = re.search(r'enable\s*=\s*(true|false)', top_level_section)
         if enable_match:
             config['enable'] = enable_match.group(1) == 'true'
         
-        # Extract port
-        port_match = re.search(r'port\s*=\s*(\d+)', content)
+        # Extract port (also top-level, before services)
+        port_match = re.search(r'port\s*=\s*(\d+)', top_level_section)
         if port_match:
             config['port'] = int(port_match.group(1))
         
-        # Extract attachSize
-        attach_match = re.search(r'attachSize\s*=\s*(\d+)', content)
+        # Extract attachSize (also top-level, before services)
+        attach_match = re.search(r'attachSize\s*=\s*(\d+)', top_level_section)
         if attach_match:
             config['attachSize'] = int(attach_match.group(1))
         
