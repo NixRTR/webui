@@ -34,11 +34,18 @@ def parse_port_forwarding_nix_file() -> Optional[List[Dict]]:
         
         rules = []
         
-        # Extract array content
-        array_match = re.search(r'\[\s*(.*?)\s*\]', content, re.DOTALL)
-        if array_match:
-            array_content = array_match.group(1)
-            rules = _parse_port_forwarding_rules(array_content)
+        # Extract array content - match from [ to ] including nested braces
+        # Use a more robust approach: find all attribute sets within the array
+        # First, find the array boundaries
+        array_start = content.find('[')
+        array_end = content.rfind(']')
+        
+        if array_start == -1 or array_end == -1 or array_start >= array_end:
+            logger.warning("Could not find array boundaries in port forwarding file")
+            return []
+        
+        array_content = content[array_start + 1:array_end]
+        rules = _parse_port_forwarding_rules(array_content)
         
         logger.debug(f"Parsed Port Forwarding config: {len(rules)} rules")
         return rules
@@ -59,21 +66,60 @@ def _parse_port_forwarding_rules(content: str) -> List[Dict]:
     """
     rules = []
     
-    # Pattern to match: { proto = "both"; externalPort = 80; destination = "192.168.2.33"; destinationPort = 80; }
-    pattern = r'\{\s*proto\s*=\s*"([^"]+)";\s*externalPort\s*=\s*(\d+);\s*destination\s*=\s*"([^"]+)";\s*destinationPort\s*=\s*(\d+);\s*\}'
-    
-    for match in re.finditer(pattern, content, re.DOTALL):
-        # Skip commented-out lines
-        line_start = content.rfind('\n', 0, match.start()) + 1
-        line_prefix = content[line_start:match.start()].strip()
+    # Find all attribute sets by matching braces
+    # This handles multiline format and nested structures
+    i = 0
+    while i < len(content):
+        # Find the start of an attribute set
+        brace_start = content.find('{', i)
+        if brace_start == -1:
+            break
+        
+        # Check if this line is commented out
+        line_start = content.rfind('\n', 0, brace_start) + 1
+        line_prefix = content[line_start:brace_start].strip()
         if line_prefix.startswith('#'):
+            i = brace_start + 1
             continue
         
-        rules.append({
-            'proto': match.group(1),
-            'externalPort': int(match.group(2)),
-            'destination': match.group(3),
-            'destinationPort': int(match.group(4))
-        })
+        # Find matching closing brace
+        depth = 0
+        brace_end = -1
+        for j in range(brace_start, len(content)):
+            if content[j] == '{':
+                depth += 1
+            elif content[j] == '}':
+                depth -= 1
+                if depth == 0:
+                    brace_end = j
+                    break
+        
+        if brace_end == -1:
+            # No matching brace found, skip
+            i = brace_start + 1
+            continue
+        
+        # Extract the attribute set content
+        attr_content = content[brace_start + 1:brace_end]
+        
+        # Extract individual fields (order-independent)
+        proto_match = re.search(r'proto\s*=\s*"([^"]+)"', attr_content)
+        external_port_match = re.search(r'externalPort\s*=\s*(\d+)', attr_content)
+        destination_match = re.search(r'destination\s*=\s*"([^"]+)"', attr_content)
+        destination_port_match = re.search(r'destinationPort\s*=\s*(\d+)', attr_content)
+        
+        # All fields must be present
+        if proto_match and external_port_match and destination_match and destination_port_match:
+            rules.append({
+                'proto': proto_match.group(1),
+                'externalPort': int(external_port_match.group(1)),
+                'destination': destination_match.group(1),
+                'destinationPort': int(destination_port_match.group(1))
+            })
+        else:
+            logger.warning(f"Skipping incomplete port forwarding rule. Missing fields. Content: {attr_content[:100]}")
+        
+        # Move past this attribute set
+        i = brace_end + 1
     
     return rules
