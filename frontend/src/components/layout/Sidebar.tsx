@@ -112,13 +112,13 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
   // Define Settings menu structure - ordered as specified
   const configChildren = [
-    ...(cakeEnabled ? [{ path: '/settings/cake', label: 'CAKE', icon: HiTrendingUp }] : []),
+    { path: '/settings/cake', label: 'CAKE', icon: HiTrendingUp },
     { path: '/dhcp', label: 'DHCP', icon: HiServer },
     { path: '/dns', label: 'DNS', icon: HiGlobe },
     { path: '/settings/blocklists-whitelist', label: 'DNS Blocklists', icon: HiShieldCheck },
     { path: '/settings/port-forwarding', label: 'Port Forwarding', icon: HiArrowRight },
     { path: '/settings/dyndns', label: 'Dynamic DNS', icon: HiRefresh },
-    ...(appriseEnabled ? [{ path: '/settings/apprise', label: 'Notifications', icon: HiBell }] : []),
+    { path: '/settings/apprise', label: 'Notifications', icon: HiBell },
   ];
   // Auto-expand Settings menu when any child route is active
   const isConfigActive = isParentActive('/settings', configChildren) || 
