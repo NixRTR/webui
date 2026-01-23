@@ -27,6 +27,11 @@ export function AppriseConfig() {
   const [attachSize, setAttachSize] = useState(0);
   const [services, setServices] = useState<Record<string, any>>({});
   
+  // Test state
+  const [testingService, setTestingService] = useState<string | null>(null);
+  const [testingAll, setTestingAll] = useState(false);
+  const [testResult, setTestResult] = useState<{ service?: string; success: boolean; message: string } | null>(null);
+  
   const { connectionStatus } = useMetrics(token);
 
   useEffect(() => {
@@ -169,6 +174,72 @@ export function AppriseConfig() {
     navigate('/login');
   };
 
+  const handleTestService = async (serviceName: string) => {
+    setTestingService(serviceName);
+    setTestResult(null);
+    setError(null);
+    
+    try {
+      const result = await apiClient.testAppriseServiceByName(serviceName);
+      setTestResult({
+        service: serviceName,
+        success: result.success,
+        message: result.message || (result.success ? 'Test sent successfully' : 'Test failed')
+      });
+      
+      if (result.success) {
+        setSuccess(`Test notification sent to ${serviceName}`);
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        setError(`Failed to send test to ${serviceName}: ${result.message}`);
+        setTimeout(() => setError(null), 5000);
+      }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.detail || err.message || 'Failed to send test notification';
+      setTestResult({
+        service: serviceName,
+        success: false,
+        message: errorMsg
+      });
+      setError(`Failed to send test to ${serviceName}: ${errorMsg}`);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setTestingService(null);
+    }
+  };
+
+  const handleTestAll = async () => {
+    setTestingAll(true);
+    setTestResult(null);
+    setError(null);
+    
+    try {
+      const result = await apiClient.testAllAppriseServices();
+      setTestResult({
+        success: result.success,
+        message: result.message || (result.success ? 'Test sent to all services' : 'Test failed')
+      });
+      
+      if (result.success) {
+        setSuccess('Test notification sent to all enabled services');
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        setError(`Failed to send test: ${result.message}`);
+        setTimeout(() => setError(null), 5000);
+      }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.detail || err.message || 'Failed to send test notification';
+      setTestResult({
+        success: false,
+        message: errorMsg
+      });
+      setError(`Failed to send test: ${errorMsg}`);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setTestingAll(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -257,9 +328,19 @@ export function AppriseConfig() {
                 </div>
 
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-6 mt-6">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                    Notification Services
-                  </h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                      Notification Services
+                    </h2>
+                    <Button
+                      onClick={handleTestAll}
+                      disabled={testingAll || !enable}
+                      color="gray"
+                      size="sm"
+                    >
+                      {testingAll ? 'Testing...' : 'Test All'}
+                    </Button>
+                  </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                     Configure individual notification services. Secrets (passwords, tokens) are stored in secrets/secrets.yaml.
                   </p>
@@ -363,15 +444,25 @@ export function AppriseConfig() {
                     <Card>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">Home Assistant</h3>
-                        <ToggleSwitch
-                          checked={services.homeAssistant?.enable || false}
-                          onChange={(checked) => {
-                            setServices({
-                              ...services,
-                              homeAssistant: { ...services.homeAssistant, enable: checked }
-                            });
-                          }}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleTestService('homeAssistant')}
+                            disabled={testingService === 'homeAssistant' || !services.homeAssistant?.enable || !enable}
+                            color="gray"
+                            size="xs"
+                          >
+                            {testingService === 'homeAssistant' ? 'Testing...' : 'Test'}
+                          </Button>
+                          <ToggleSwitch
+                            checked={services.homeAssistant?.enable || false}
+                            onChange={(checked) => {
+                              setServices({
+                                ...services,
+                                homeAssistant: { ...services.homeAssistant, enable: checked }
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                       {services.homeAssistant?.enable && (
                         <div className="space-y-4">
@@ -427,15 +518,25 @@ export function AppriseConfig() {
                     <Card>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">Discord</h3>
-                        <ToggleSwitch
-                          checked={services.discord?.enable || false}
-                          onChange={(checked) => {
-                            setServices({
-                              ...services,
-                              discord: { ...services.discord, enable: checked }
-                            });
-                          }}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleTestService('discord')}
+                            disabled={testingService === 'discord' || !services.discord?.enable || !enable}
+                            color="gray"
+                            size="xs"
+                          >
+                            {testingService === 'discord' ? 'Testing...' : 'Test'}
+                          </Button>
+                          <ToggleSwitch
+                            checked={services.discord?.enable || false}
+                            onChange={(checked) => {
+                              setServices({
+                                ...services,
+                                discord: { ...services.discord, enable: checked }
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                       {services.discord?.enable && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -450,15 +551,25 @@ export function AppriseConfig() {
                     <Card>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">Slack</h3>
-                        <ToggleSwitch
-                          checked={services.slack?.enable || false}
-                          onChange={(checked) => {
-                            setServices({
-                              ...services,
-                              slack: { ...services.slack, enable: checked }
-                            });
-                          }}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleTestService('slack')}
+                            disabled={testingService === 'slack' || !services.slack?.enable || !enable}
+                            color="gray"
+                            size="xs"
+                          >
+                            {testingService === 'slack' ? 'Testing...' : 'Test'}
+                          </Button>
+                          <ToggleSwitch
+                            checked={services.slack?.enable || false}
+                            onChange={(checked) => {
+                              setServices({
+                                ...services,
+                                slack: { ...services.slack, enable: checked }
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                       {services.slack?.enable && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -474,15 +585,25 @@ export function AppriseConfig() {
                     <Card>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">Telegram</h3>
-                        <ToggleSwitch
-                          checked={services.telegram?.enable || false}
-                          onChange={(checked) => {
-                            setServices({
-                              ...services,
-                              telegram: { ...services.telegram, enable: checked }
-                            });
-                          }}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleTestService('telegram')}
+                            disabled={testingService === 'telegram' || !services.telegram?.enable || !enable}
+                            color="gray"
+                            size="xs"
+                          >
+                            {testingService === 'telegram' ? 'Testing...' : 'Test'}
+                          </Button>
+                          <ToggleSwitch
+                            checked={services.telegram?.enable || false}
+                            onChange={(checked) => {
+                              setServices({
+                                ...services,
+                                telegram: { ...services.telegram, enable: checked }
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                       {services.telegram?.enable && (
                         <div className="space-y-4">
@@ -511,15 +632,25 @@ export function AppriseConfig() {
                     <Card>
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">ntfy</h3>
-                        <ToggleSwitch
-                          checked={services.ntfy?.enable || false}
-                          onChange={(checked) => {
-                            setServices({
-                              ...services,
-                              ntfy: { ...services.ntfy, enable: checked }
-                            });
-                          }}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleTestService('ntfy')}
+                            disabled={testingService === 'ntfy' || !services.ntfy?.enable || !enable}
+                            color="gray"
+                            size="xs"
+                          >
+                            {testingService === 'ntfy' ? 'Testing...' : 'Test'}
+                          </Button>
+                          <ToggleSwitch
+                            checked={services.ntfy?.enable || false}
+                            onChange={(checked) => {
+                              setServices({
+                                ...services,
+                                ntfy: { ...services.ntfy, enable: checked }
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                       {services.ntfy?.enable && (
                         <div className="space-y-4">

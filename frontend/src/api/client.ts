@@ -356,6 +356,16 @@ class APIClient {
     return response.data;
   }
 
+  async testAppriseServiceByName(serviceName: string): Promise<{ success: boolean; message: string; details?: string }> {
+    const response = await this.client.post<{ success: boolean; message: string; details?: string }>(`/api/apprise/config/test/${serviceName}`);
+    return response.data;
+  }
+
+  async testAllAppriseServices(): Promise<{ success: boolean; message: string; details?: string }> {
+    const response = await this.client.post<{ success: boolean; message: string; details?: string }>('/api/apprise/config/test-all');
+    return response.data;
+  }
+
   async sendAppriseNotificationToService(
     serviceIndex: number,
     body: string,
