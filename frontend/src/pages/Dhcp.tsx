@@ -20,8 +20,8 @@ export function Dhcp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [networkFilter, setNetworkFilter] = useState<'all' | 'homelab' | 'lan'>('all');
-  const [dhcpServiceStatus, setDhcpServiceStatus] = useState<{ is_active: boolean; is_enabled: boolean; exists: boolean } | null>(null);
-  const [controllingDhcpService, setControllingDhcpService] = useState(false);
+  const [dhcpServiceStatuses, setDhcpServiceStatuses] = useState<Record<string, { is_active: boolean; is_enabled: boolean; exists: boolean }>>({});
+  const [controllingDhcpService, setControllingDhcpService] = useState<string | null>(null);
   
   // Network modal state
   const [networkModalOpen, setNetworkModalOpen] = useState(false);
@@ -63,30 +63,37 @@ export function Dhcp() {
       return;
     }
     fetchNetworks();
-    fetchDhcpServiceStatus();
+    fetchDhcpServiceStatuses();
   }, [token, networkFilter]);
 
-  const fetchDhcpServiceStatus = async () => {
+  const fetchDhcpServiceStatuses = async () => {
     try {
-      const status = await apiClient.getDhcpServiceStatus();
-      setDhcpServiceStatus(status);
+      const [homelabStatus, lanStatus] = await Promise.all([
+        apiClient.getDhcpServiceStatus('homelab'),
+        apiClient.getDhcpServiceStatus('lan'),
+      ]);
+      setDhcpServiceStatuses({
+        homelab: homelabStatus,
+        lan: lanStatus,
+      });
     } catch (err: any) {
-      console.error('Failed to fetch DHCP service status:', err);
+      console.error('Failed to fetch DHCP service statuses:', err);
     }
   };
 
-  const handleDhcpServiceControl = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
-    setControllingDhcpService(true);
+  const handleDhcpServiceControl = async (network: 'homelab' | 'lan', action: 'start' | 'stop' | 'restart' | 'reload') => {
+    const serviceKey = `${network}-${action}`;
+    setControllingDhcpService(serviceKey);
     try {
-      await apiClient.controlDhcpService(action);
+      await apiClient.controlDhcpService(network, action);
       // Refresh service status after a short delay
       setTimeout(() => {
-        fetchDhcpServiceStatus();
+        fetchDhcpServiceStatuses();
       }, 1000);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err.message || `Failed to ${action} DHCP service`);
+      setError(err?.response?.data?.detail || err.message || `Failed to ${action} DHCP service for ${network}`);
     } finally {
-      setControllingDhcpService(false);
+      setControllingDhcpService(null);
     }
   };
 
@@ -104,9 +111,9 @@ export function Dhcp() {
     }
   };
 
-  const fetchReservations = async (networkId: number) => {
+  const fetchReservations = async (network: string) => {
     try {
-      const data = await apiClient.getDhcpReservations(networkId);
+      const data = await apiClient.getDhcpReservations(network);
       setReservations(data);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to load DHCP reservations');
@@ -173,7 +180,7 @@ export function Dhcp() {
           dns_servers: dnsServersList,
           dynamic_domain: networkDynamicDomain.trim() || null,
         };
-        await apiClient.updateDhcpNetwork(editingNetwork.id, update);
+        await apiClient.updateDhcpNetwork(editingNetwork.network, update);
       } else {
         const create: DhcpNetworkCreate = {
           network: networkNetwork,
@@ -190,7 +197,13 @@ export function Dhcp() {
       await fetchNetworks();
       closeNetworkModal();
     } catch (err: any) {
-      setNetworkError(err?.response?.data?.detail || err.message || 'Failed to save network');
+      const errorMessage = err?.response?.data?.detail || err.message || 'Failed to save network';
+      // Check if error indicates networks must be configured in router-config.nix
+      if (errorMessage.includes('router-config.nix') || errorMessage.includes('cannot be')) {
+        setNetworkError('DHCP networks cannot be managed via WebUI. They must be configured in router-config.nix. Only reservations can be managed through the WebUI.');
+      } else {
+        setNetworkError(errorMessage);
+      }
     } finally {
       setSaving(false);
     }
@@ -200,12 +213,18 @@ export function Dhcp() {
     if (!networkToDelete) return;
     
     try {
-      await apiClient.deleteDhcpNetwork(networkToDelete.id);
+      await apiClient.deleteDhcpNetwork(networkToDelete.network);
       await fetchNetworks();
       setDeleteNetworkModalOpen(false);
       setNetworkToDelete(null);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err.message || 'Failed to delete network');
+      const errorMessage = err?.response?.data?.detail || err.message || 'Failed to delete network';
+      // Check if error indicates networks must be configured in router-config.nix
+      if (errorMessage.includes('router-config.nix') || errorMessage.includes('cannot be')) {
+        setError('DHCP networks cannot be deleted via WebUI. They must be removed from router-config.nix. Only reservations can be managed through the WebUI.');
+      } else {
+        setError(errorMessage);
+      }
     }
   };
 
@@ -246,7 +265,7 @@ export function Dhcp() {
     setEditingReservation(null);
     setReservationError(null);
     if (selectedNetwork) {
-      fetchReservations(selectedNetwork.id);
+      fetchReservations(selectedNetwork.network);
     }
   };
 
@@ -283,20 +302,19 @@ export function Dhcp() {
           comment: reservationComment.trim() || null,
           enabled: reservationEnabled,
         };
-        await apiClient.updateDhcpReservation(editingReservation.id, update);
+        await apiClient.updateDhcpReservation(editingReservation.hw_address, selectedNetwork.network, update);
       } else {
         const create: DhcpReservationCreate = {
-          network_id: selectedNetwork.id,
           hostname: reservationHostname.trim(),
           hw_address: reservationHwAddress.trim(),
           ip_address: reservationIpAddress.trim(),
           comment: reservationComment.trim() || null,
           enabled: reservationEnabled,
         };
-        await apiClient.createDhcpReservation(selectedNetwork.id, create);
+        await apiClient.createDhcpReservation(selectedNetwork.network, create);
       }
       
-      await fetchReservations(selectedNetwork.id);
+      await fetchReservations(selectedNetwork.network);
       closeReservationEditModal();
     } catch (err: any) {
       setReservationError(err?.response?.data?.detail || err.message || 'Failed to save reservation');
@@ -306,13 +324,11 @@ export function Dhcp() {
   };
 
   const handleDeleteReservation = async () => {
-    if (!reservationToDelete) return;
+    if (!reservationToDelete || !selectedNetwork) return;
     
     try {
-      await apiClient.deleteDhcpReservation(reservationToDelete.id);
-      if (selectedNetwork) {
-        await fetchReservations(selectedNetwork.id);
-      }
+      await apiClient.deleteDhcpReservation(reservationToDelete.hw_address, selectedNetwork.network);
+      await fetchReservations(selectedNetwork.network);
       setDeleteReservationModalOpen(false);
       setReservationToDelete(null);
     } catch (err: any) {
@@ -379,53 +395,64 @@ export function Dhcp() {
                 </Select>
               </div>
               
-              {/* DHCP Service Controls */}
-              <div className="flex flex-col gap-2">
-                <Label value="DHCP Service" />
-                <div className="flex gap-2 items-center flex-wrap">
-                  {dhcpServiceStatus && (
-                    <Badge color={dhcpServiceStatus.is_active ? "success" : "gray"} size="sm">
-                      {dhcpServiceStatus.is_active ? "Running" : dhcpServiceStatus.is_enabled ? "Stopped" : "Disabled"}
-                    </Badge>
-                  )}
-                  <Button
-                    size="xs"
-                    color="success"
-                    onClick={() => handleDhcpServiceControl('start')}
-                    disabled={controllingDhcpService || (dhcpServiceStatus?.is_active ?? false)}
-                    title="Start Service"
-                  >
-                    <HiPlay className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="xs"
-                    color="failure"
-                    onClick={() => handleDhcpServiceControl('stop')}
-                    disabled={controllingDhcpService || !(dhcpServiceStatus?.is_active ?? false)}
-                    title="Stop Service"
-                  >
-                    <HiStop className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="xs"
-                    color="warning"
-                    onClick={() => handleDhcpServiceControl('reload')}
-                    disabled={controllingDhcpService || !(dhcpServiceStatus?.is_active ?? false)}
-                    title="Reload Service"
-                  >
-                    <HiRefresh className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="xs"
-                    color="purple"
-                    onClick={() => handleDhcpServiceControl('restart')}
-                    disabled={controllingDhcpService}
-                    title="Restart Service"
-                  >
-                    <HiRefresh className="w-4 h-4" />
-                  </Button>
+              {/* DHCP Service Controls - Show controls for filtered network or all networks */}
+              {networkFilter !== 'all' && (
+                <div className="flex flex-col gap-2">
+                  <Label value={`DHCP Service - ${networkFilter.toUpperCase()}`} />
+                  <div className="flex gap-2 items-center flex-wrap">
+                    {(() => {
+                      const status = dhcpServiceStatuses[networkFilter];
+                      const serviceKey = `${networkFilter}-`;
+                      const isControlling = controllingDhcpService?.startsWith(serviceKey);
+                      return (
+                        <>
+                          {status && (
+                            <Badge color={status.is_active ? "success" : "gray"} size="sm">
+                              {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
+                            </Badge>
+                          )}
+                          <Button
+                            size="xs"
+                            color="success"
+                            onClick={() => handleDhcpServiceControl(networkFilter, 'start')}
+                            disabled={isControlling || (status?.is_active ?? false)}
+                            title="Start Service"
+                          >
+                            <HiPlay className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="xs"
+                            color="failure"
+                            onClick={() => handleDhcpServiceControl(networkFilter, 'stop')}
+                            disabled={isControlling || !(status?.is_active ?? false)}
+                            title="Stop Service"
+                          >
+                            <HiStop className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="xs"
+                            color="warning"
+                            onClick={() => handleDhcpServiceControl(networkFilter, 'reload')}
+                            disabled={isControlling || !(status?.is_active ?? false)}
+                            title="Reload Service"
+                          >
+                            <HiRefresh className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="xs"
+                            color="purple"
+                            onClick={() => handleDhcpServiceControl(networkFilter, 'restart')}
+                            disabled={isControlling}
+                            title="Restart Service"
+                          >
+                            <HiRefresh className="w-4 h-4" />
+                          </Button>
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Networks Cards */}

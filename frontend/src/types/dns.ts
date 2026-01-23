@@ -48,7 +48,6 @@ export interface DnsRecord {
 }
 
 export interface DnsRecordCreate {
-  zone_id: number;
   name: string;
   type: 'A' | 'CNAME';
   value: string;

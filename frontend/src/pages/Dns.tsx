@@ -118,9 +118,9 @@ export function Dns() {
     return { is_active: status.is_active, is_enabled: status.is_enabled };
   };
 
-  const fetchRecords = async (zoneId: number) => {
+  const fetchRecords = async (zoneName: string, network: string) => {
     try {
-      const data = await apiClient.getDnsRecords(zoneId);
+      const data = await apiClient.getDnsRecords(zoneName, network);
       setRecords(data);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to load DNS records');
@@ -181,7 +181,7 @@ export function Dns() {
           delegate_to: zoneDelegateTo.trim() || null,
           enabled: zoneEnabled,
         };
-        await apiClient.updateDnsZone(editingZone.id, update);
+        await apiClient.updateDnsZone(editingZone.name, editingZone.network, update);
       } else {
         const create: DnsZoneCreate = {
           name: zoneName.trim(),
@@ -207,7 +207,7 @@ export function Dns() {
     if (!zoneToDelete) return;
     
     try {
-      await apiClient.deleteDnsZone(zoneToDelete.id);
+      await apiClient.deleteDnsZone(zoneToDelete.name, zoneToDelete.network);
       await fetchZones();
       setDeleteZoneModalOpen(false);
       setZoneToDelete(null);
@@ -254,7 +254,7 @@ export function Dns() {
     setEditingRecord(null);
     setRecordError(null);
     if (selectedZone) {
-      fetchRecords(selectedZone.id);
+      fetchRecords(selectedZone.name, selectedZone.network);
     }
   };
 
@@ -285,20 +285,19 @@ export function Dns() {
           comment: recordComment.trim() || null,
           enabled: recordEnabled,
         };
-        await apiClient.updateDnsRecord(editingRecord.id, update);
+        await apiClient.updateDnsRecord(editingRecord.name, selectedZone.network, selectedZone.name, update);
       } else {
         const create: DnsRecordCreate = {
-          zone_id: selectedZone.id,
           name: recordName.trim(),
           type: recordType,
           value: recordValue.trim(),
           comment: recordComment.trim() || null,
           enabled: recordEnabled,
         };
-        await apiClient.createDnsRecord(selectedZone.id, create);
+        await apiClient.createDnsRecord(selectedZone.name, selectedZone.network, create);
       }
       
-      await fetchRecords(selectedZone.id);
+      await fetchRecords(selectedZone.name, selectedZone.network);
       closeRecordEditModal();
     } catch (err: any) {
       setRecordError(err?.response?.data?.detail || err.message || 'Failed to save record');
@@ -308,13 +307,11 @@ export function Dns() {
   };
 
   const handleDeleteRecord = async () => {
-    if (!recordToDelete) return;
+    if (!recordToDelete || !selectedZone) return;
     
     try {
-      await apiClient.deleteDnsRecord(recordToDelete.id);
-      if (selectedZone) {
-        await fetchRecords(selectedZone.id);
-      }
+      await apiClient.deleteDnsRecord(recordToDelete.name, selectedZone.network, selectedZone.name);
+      await fetchRecords(selectedZone.name, selectedZone.network);
       setDeleteRecordModalOpen(false);
       setRecordToDelete(null);
     } catch (err: any) {

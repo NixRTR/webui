@@ -401,18 +401,27 @@ class APIClient {
     return response.data;
   }
 
-  async getDnsZone(zoneId: number): Promise<DnsZone> {
-    const response = await this.client.get<DnsZone>(`/api/dns/zones/${zoneId}`);
+  async getDnsZone(zoneName: string, network: string): Promise<DnsZone> {
+    const encodedZoneName = encodeURIComponent(zoneName);
+    const response = await this.client.get<DnsZone>(`/api/dns/zones/${encodedZoneName}`, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async updateDnsZone(zoneId: number, zone: DnsZoneUpdate): Promise<DnsZone> {
-    const response = await this.client.put<DnsZone>(`/api/dns/zones/${zoneId}`, zone);
+  async updateDnsZone(zoneName: string, network: string, zone: DnsZoneUpdate): Promise<DnsZone> {
+    const encodedZoneName = encodeURIComponent(zoneName);
+    const response = await this.client.put<DnsZone>(`/api/dns/zones/${encodedZoneName}`, zone, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async deleteDnsZone(zoneId: number): Promise<{ message: string }> {
-    const response = await this.client.delete<{ message: string }>(`/api/dns/zones/${zoneId}`);
+  async deleteDnsZone(zoneName: string, network: string): Promise<{ message: string }> {
+    const encodedZoneName = encodeURIComponent(zoneName);
+    const response = await this.client.delete<{ message: string }>(`/api/dns/zones/${encodedZoneName}`, {
+      params: { network }
+    });
     return response.data;
   }
 
@@ -455,44 +464,55 @@ class APIClient {
     return response.data;
   }
 
-  async getDhcpNetwork(networkId: number): Promise<DhcpNetwork> {
-    const response = await this.client.get<DhcpNetwork>(`/api/dhcp/networks/${networkId}`);
+  async getDhcpNetwork(network: string): Promise<DhcpNetwork> {
+    const response = await this.client.get<DhcpNetwork>(`/api/dhcp/networks/${network}`);
     return response.data;
   }
 
-  async updateDhcpNetwork(networkId: number, network: DhcpNetworkUpdate): Promise<DhcpNetwork> {
-    const response = await this.client.put<DhcpNetwork>(`/api/dhcp/networks/${networkId}`, network);
+  async updateDhcpNetwork(network: string, networkUpdate: DhcpNetworkUpdate): Promise<DhcpNetwork> {
+    const response = await this.client.put<DhcpNetwork>(`/api/dhcp/networks/${network}`, networkUpdate);
     return response.data;
   }
 
-  async deleteDhcpNetwork(networkId: number): Promise<{ message: string }> {
-    const response = await this.client.delete<{ message: string }>(`/api/dhcp/networks/${networkId}`);
+  async deleteDhcpNetwork(network: string): Promise<{ message: string }> {
+    const response = await this.client.delete<{ message: string }>(`/api/dhcp/networks/${network}`);
     return response.data;
   }
 
   // DHCP Reservation methods
-  async getDhcpReservations(networkId: number): Promise<DhcpReservation[]> {
-    const response = await this.client.get<DhcpReservation[]>(`/api/dhcp/networks/${networkId}/reservations`);
+  async getDhcpReservations(network: string): Promise<DhcpReservation[]> {
+    const response = await this.client.get<DhcpReservation[]>(`/api/dhcp/networks/${network}/reservations`);
     return response.data;
   }
 
-  async createDhcpReservation(networkId: number, reservation: DhcpReservationCreate): Promise<DhcpReservation> {
-    const response = await this.client.post<DhcpReservation>(`/api/dhcp/networks/${networkId}/reservations`, reservation);
+  async createDhcpReservation(network: string, reservation: DhcpReservationCreate): Promise<DhcpReservation> {
+    // Remove network_id from payload as it's no longer needed
+    const { network_id, ...reservationPayload } = reservation;
+    const response = await this.client.post<DhcpReservation>(`/api/dhcp/networks/${network}/reservations`, reservationPayload);
     return response.data;
   }
 
-  async getDhcpReservation(reservationId: number): Promise<DhcpReservation> {
-    const response = await this.client.get<DhcpReservation>(`/api/dhcp/reservations/${reservationId}`);
+  async getDhcpReservation(hwAddress: string, network: string): Promise<DhcpReservation> {
+    const encodedHwAddress = encodeURIComponent(hwAddress);
+    const response = await this.client.get<DhcpReservation>(`/api/dhcp/reservations/${encodedHwAddress}`, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async updateDhcpReservation(reservationId: number, reservation: DhcpReservationUpdate): Promise<DhcpReservation> {
-    const response = await this.client.put<DhcpReservation>(`/api/dhcp/reservations/${reservationId}`, reservation);
+  async updateDhcpReservation(hwAddress: string, network: string, reservation: DhcpReservationUpdate): Promise<DhcpReservation> {
+    const encodedHwAddress = encodeURIComponent(hwAddress);
+    const response = await this.client.put<DhcpReservation>(`/api/dhcp/reservations/${encodedHwAddress}`, reservation, {
+      params: { network }
+    });
     return response.data;
   }
 
-  async deleteDhcpReservation(reservationId: number): Promise<{ message: string }> {
-    const response = await this.client.delete<{ message: string }>(`/api/dhcp/reservations/${reservationId}`);
+  async deleteDhcpReservation(hwAddress: string, network: string): Promise<{ message: string }> {
+    const encodedHwAddress = encodeURIComponent(hwAddress);
+    const response = await this.client.delete<{ message: string }>(`/api/dhcp/reservations/${encodedHwAddress}`, {
+      params: { network }
+    });
     return response.data;
   }
 
@@ -517,8 +537,9 @@ class APIClient {
   }
 
   // DHCP Service Control
-  async getDhcpServiceStatus(): Promise<{
+  async getDhcpServiceStatus(network: 'homelab' | 'lan'): Promise<{
     service_name: string;
+    network: string;
     is_active: boolean;
     is_enabled: boolean;
     exists: boolean;
@@ -526,12 +547,12 @@ class APIClient {
     memory_mb?: number | null;
     cpu_percent?: number | null;
   }> {
-    const response = await this.client.get(`/api/dhcp/service-status`);
+    const response = await this.client.get(`/api/dhcp/service-status/${network}`);
     return response.data;
   }
 
-  async controlDhcpService(action: 'start' | 'stop' | 'restart' | 'reload'): Promise<{ message: string }> {
-    const response = await this.client.post(`/api/dhcp/service/${action}`);
+  async controlDhcpService(network: 'homelab' | 'lan', action: 'start' | 'stop' | 'restart' | 'reload'): Promise<{ message: string }> {
+    const response = await this.client.post(`/api/dhcp/service/${network}/${action}`);
     return response.data;
   }
 }

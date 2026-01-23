@@ -52,7 +52,6 @@ export interface DhcpReservation {
 }
 
 export interface DhcpReservationCreate {
-  network_id: number;
   hostname: string;
   hw_address: string;  // MAC address
   ip_address: string;  // IP address
