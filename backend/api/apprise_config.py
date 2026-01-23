@@ -11,7 +11,7 @@ from ..models import AppriseConfig, AppriseConfigUpdate, AppriseServiceConfig
 from ..utils.apprise_parser import parse_apprise_nix_file
 from ..utils.nix_writer import write_apprise_nix_file
 from ..utils.config_writer import write_apprise_nix_config
-from ..utils.apprise import test_service, is_apprise_enabled, _load_apprise_config_from_file, url_encode_password_in_url
+from ..utils.apprise import test_service, is_apprise_enabled, is_apprise_enabled_in_config, _load_apprise_config_from_file, url_encode_password_in_url
 
 logger = logging.getLogger(__name__)
 
@@ -175,10 +175,11 @@ async def test_service_by_name(
         NotificationResponse: Success status and message
     """
     try:
-        if not is_apprise_enabled():
+        # Check if Apprise is enabled in the Nix config (not just if the service file exists)
+        if not is_apprise_enabled_in_config():
             raise HTTPException(
                 status_code=503,
-                detail="Apprise is not enabled"
+                detail="Apprise is not enabled in configuration"
             )
         
         # Get service URL
@@ -236,10 +237,11 @@ async def test_all_services(
         NotificationResponse: Success status and message
     """
     try:
-        if not is_apprise_enabled():
+        # Check if Apprise is enabled in the Nix config (not just if the service file exists)
+        if not is_apprise_enabled_in_config():
             raise HTTPException(
                 status_code=503,
-                detail="Apprise is not enabled"
+                detail="Apprise is not enabled in configuration"
             )
         
         # Get all enabled services from Nix config
