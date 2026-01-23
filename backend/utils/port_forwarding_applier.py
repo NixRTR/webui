@@ -202,7 +202,9 @@ def apply_port_forwarding_rules() -> None:
             
             for protocol in protocols:
                 # Add DNAT rule: forward external port to internal destination
-                # Format: iptables -t nat -A WEBUI_PORT_FORWARD -p <proto> --dport <external> -j DNAT --to-destination <dest>:<dest_port>
+                # Format matches NixOS networking.nat.forwardPorts:
+                # iptables -t nat -A WEBUI_PORT_FORWARD -p <proto> --dport <external> -j DNAT --to-destination <dest>:<dest_port>
+                # Optionally restrict to WAN interface: -i <wan_interface>
                 cmd = [
                     'iptables', '-t', 'nat', '-A', IPTABLES_CHAIN,
                     '-p', protocol,
@@ -211,11 +213,17 @@ def apply_port_forwarding_rules() -> None:
                     '--to-destination', f"{destination}:{destination_port}"
                 ]
                 
+                # Optionally add interface restriction (uncomment if needed)
+                # if wan_interface:
+                #     cmd.insert(-2, '-i')
+                #     cmd.insert(-2, wan_interface)
+                
                 try:
-                    subprocess.run(cmd, check=True, capture_output=True)
+                    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
                     logger.debug(f"Applied rule: {protocol}:{external_port} -> {destination}:{destination_port}")
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to apply rule {protocol}:{external_port} -> {destination}:{destination_port}: {e}")
+                    error_msg = e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)
+                    logger.error(f"Failed to apply rule {protocol}:{external_port} -> {destination}:{destination_port}: {error_msg}")
                     # Continue with other rules even if one fails
         
         logger.info("Port forwarding rules applied successfully")
