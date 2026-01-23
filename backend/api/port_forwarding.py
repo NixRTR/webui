@@ -10,6 +10,7 @@ from ..models import PortForwardingRule, PortForwardingRuleCreate, PortForwardin
 from ..utils.port_forwarding_parser import parse_port_forwarding_nix_file
 from ..utils.nix_writer import write_port_forwarding_nix_file
 from ..utils.config_writer import write_port_forwarding_nix_config
+from ..utils.port_forwarding_applier import apply_port_forwarding_rules
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,16 @@ async def create_port_forwarding_rule(
         # Format as Nix
         nix_content = write_port_forwarding_nix_file(rules)
         
-        # Write via socket service
+        # Write via socket service (this will also apply iptables rules)
         write_port_forwarding_nix_config(nix_content)
+        
+        # Apply iptables rules immediately (also done in config writer, but do it here as backup)
+        try:
+            apply_port_forwarding_rules()
+            logger.info("Port forwarding rules applied to iptables")
+        except Exception as apply_error:
+            logger.warning(f"Failed to apply port forwarding rules (config writer should have done this): {apply_error}")
+            # Don't fail the API call if rule application fails
         
         logger.info(f"Port forwarding rule added by {current_user}")
         return PortForwardingRule(index=len(rules) - 1, **new_rule)
@@ -88,8 +97,16 @@ async def update_port_forwarding_rule(
         # Format as Nix
         nix_content = write_port_forwarding_nix_file(rules)
         
-        # Write via socket service
+        # Write via socket service (this will also apply iptables rules)
         write_port_forwarding_nix_config(nix_content)
+        
+        # Apply iptables rules immediately (also done in config writer, but do it here as backup)
+        try:
+            apply_port_forwarding_rules()
+            logger.info("Port forwarding rules applied to iptables")
+        except Exception as apply_error:
+            logger.warning(f"Failed to apply port forwarding rules (config writer should have done this): {apply_error}")
+            # Don't fail the API call if rule application fails
         
         logger.info(f"Port forwarding rule {index} updated by {current_user}")
         return PortForwardingRule(index=index, **updated_rule)
@@ -122,8 +139,16 @@ async def delete_port_forwarding_rule(
         # Format as Nix
         nix_content = write_port_forwarding_nix_file(rules)
         
-        # Write via socket service
+        # Write via socket service (this will also apply iptables rules)
         write_port_forwarding_nix_config(nix_content)
+        
+        # Apply iptables rules immediately (also done in config writer, but do it here as backup)
+        try:
+            apply_port_forwarding_rules()
+            logger.info("Port forwarding rules applied to iptables")
+        except Exception as apply_error:
+            logger.warning(f"Failed to apply port forwarding rules (config writer should have done this): {apply_error}")
+            # Don't fail the API call if rule application fails
         
         logger.info(f"Port forwarding rule {index} deleted by {current_user}")
         return {"message": "Port forwarding rule deleted successfully"}
