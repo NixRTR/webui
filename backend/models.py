@@ -546,8 +546,8 @@ class DnsZone(DnsZoneBase):
     """DNS zone model"""
     id: int
     original_config_path: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -583,8 +583,8 @@ class DnsRecord(DnsRecordBase):
     id: int
     zone_id: int
     original_config_path: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -686,8 +686,8 @@ class DhcpNetwork(DhcpNetworkBase):
     """DHCP network model"""
     id: int
     original_config_path: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -767,8 +767,8 @@ class DhcpReservation(DhcpReservationBase):
     id: int
     network_id: int
     original_config_path: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
