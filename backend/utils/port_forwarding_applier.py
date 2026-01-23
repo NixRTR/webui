@@ -115,7 +115,7 @@ def ensure_iptables_chain() -> None:
         # Check if chain exists
         result = subprocess.run(
             ['iptables', '-t', 'nat', '-L', IPTABLES_CHAIN],
-            capture_output=True,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL
         )
         
@@ -131,7 +131,7 @@ def ensure_iptables_chain() -> None:
         # Check if jump rule exists
         result = subprocess.run(
             ['iptables', '-t', 'nat', '-C', 'PREROUTING', '-j', IPTABLES_CHAIN],
-            capture_output=True,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL
         )
         
