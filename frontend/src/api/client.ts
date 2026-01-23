@@ -436,9 +436,7 @@ class APIClient {
 
   async createDnsRecord(zoneName: string, network: string, record: DnsRecordCreate): Promise<DnsRecord> {
     const encodedZoneName = encodeURIComponent(zoneName);
-    // Remove zone_id from payload as it's no longer needed
-    const { zone_id, ...recordPayload } = record;
-    const response = await this.client.post<DnsRecord>(`/api/dns/zones/${encodedZoneName}/records`, recordPayload, {
+    const response = await this.client.post<DnsRecord>(`/api/dns/zones/${encodedZoneName}/records`, record, {
       params: { network }
     });
     return response.data;
