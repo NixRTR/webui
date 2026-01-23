@@ -772,3 +772,4 @@ class DhcpReservation(DhcpReservationBase):
     
     class Config:
         from_attributes = True
+
