@@ -19,7 +19,6 @@ export function Dhcp() {
   const [networks, setNetworks] = useState<DhcpNetwork[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [networkFilter, setNetworkFilter] = useState<'all' | 'homelab' | 'lan'>('all');
   const [dhcpServiceStatuses, setDhcpServiceStatuses] = useState<Record<string, { is_active: boolean; is_enabled: boolean; exists: boolean }>>({});
   const [controllingDhcpService, setControllingDhcpService] = useState<string | null>(null);
   
@@ -64,7 +63,7 @@ export function Dhcp() {
     }
     fetchNetworks();
     fetchDhcpServiceStatuses();
-  }, [token, networkFilter]);
+  }, [token]);
 
   const fetchDhcpServiceStatuses = async () => {
     try {
@@ -101,8 +100,7 @@ export function Dhcp() {
     setLoading(true);
     setError(null);
     try {
-      const network = networkFilter === 'all' ? undefined : networkFilter;
-      const data = await apiClient.getDhcpNetworks(network);
+      const data = await apiClient.getDhcpNetworks();
       setNetworks(data);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to load DHCP networks');
@@ -126,7 +124,7 @@ export function Dhcp() {
     navigate('/login');
   };
 
-  const openNetworkModal = (network?: DhcpNetwork) => {
+  const openNetworkModal = (network?: DhcpNetwork, networkType?: 'homelab' | 'lan') => {
     if (network) {
       setEditingNetwork(network);
       setNetworkNetwork(network.network);
@@ -138,7 +136,7 @@ export function Dhcp() {
       setNetworkDynamicDomain(network.dynamic_domain || '');
     } else {
       setEditingNetwork(null);
-      setNetworkNetwork('homelab');
+      setNetworkNetwork(networkType || 'homelab');
       setNetworkEnabled(true);
       setNetworkStart('');
       setNetworkEnd('');
@@ -365,12 +363,6 @@ export function Dhcp() {
                 <HiServer className="w-8 h-8 text-gray-900 dark:text-white" />
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">DHCP Management</h1>
               </div>
-              <Button
-                color="blue"
-                onClick={() => openNetworkModal()}
-              >
-                New Network
-              </Button>
             </div>
 
             {error && (
@@ -379,127 +371,100 @@ export function Dhcp() {
               </Alert>
             )}
 
-            {/* Network Filter and DHCP Service Controls */}
-            <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-              <div>
-                <Label htmlFor="networkFilter" value="Filter by Network" />
-                <Select
-                  id="networkFilter"
-                  value={networkFilter}
-                  onChange={(e) => setNetworkFilter(e.target.value as 'all' | 'homelab' | 'lan')}
-                  className="mt-1 w-48"
-                >
-                  <option value="all">All Networks</option>
-                  <option value="homelab">HOMELAB</option>
-                  <option value="lan">LAN</option>
-                </Select>
+            {/* HOMELAB Section */}
+            <Card className="mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">HOMELAB</h2>
+                  {(() => {
+                    const status = dhcpServiceStatuses['homelab'];
+                    const serviceKey = 'homelab-';
+                    const isControlling = controllingDhcpService?.startsWith(serviceKey);
+                    return (
+                      <div className="flex gap-2 items-center flex-wrap">
+                        {status && (
+                          <Badge color={status.is_active ? "success" : "gray"} size="sm">
+                            {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
+                          </Badge>
+                        )}
+                        <Button
+                          size="xs"
+                          color="success"
+                          onClick={() => handleDhcpServiceControl('homelab', 'start')}
+                          disabled={isControlling || (status?.is_active ?? false)}
+                          title="Start Service"
+                        >
+                          <HiPlay className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="failure"
+                          onClick={() => handleDhcpServiceControl('homelab', 'stop')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Stop Service"
+                        >
+                          <HiStop className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="warning"
+                          onClick={() => handleDhcpServiceControl('homelab', 'reload')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Reload Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="purple"
+                          onClick={() => handleDhcpServiceControl('homelab', 'restart')}
+                          disabled={isControlling}
+                          title="Restart Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
               
-              {/* DHCP Service Controls - Show controls for filtered network or all networks */}
-              {networkFilter !== 'all' && (
-                <div className="flex flex-col gap-2">
-                  <Label value={`DHCP Service - ${networkFilter.toUpperCase()}`} />
-                  <div className="flex gap-2 items-center flex-wrap">
-                    {(() => {
-                      const status = dhcpServiceStatuses[networkFilter];
-                      const serviceKey = `${networkFilter}-`;
-                      const isControlling = controllingDhcpService?.startsWith(serviceKey);
-                      return (
-                        <>
-                          {status && (
-                            <Badge color={status.is_active ? "success" : "gray"} size="sm">
-                              {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
-                            </Badge>
-                          )}
-                          <Button
-                            size="xs"
-                            color="success"
-                            onClick={() => handleDhcpServiceControl(networkFilter, 'start')}
-                            disabled={isControlling || (status?.is_active ?? false)}
-                            title="Start Service"
-                          >
-                            <HiPlay className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="failure"
-                            onClick={() => handleDhcpServiceControl(networkFilter, 'stop')}
-                            disabled={isControlling || !(status?.is_active ?? false)}
-                            title="Stop Service"
-                          >
-                            <HiStop className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="warning"
-                            onClick={() => handleDhcpServiceControl(networkFilter, 'reload')}
-                            disabled={isControlling || !(status?.is_active ?? false)}
-                            title="Reload Service"
-                          >
-                            <HiRefresh className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="purple"
-                            onClick={() => handleDhcpServiceControl(networkFilter, 'restart')}
-                            disabled={isControlling}
-                            title="Restart Service"
-                          >
-                            <HiRefresh className="w-4 h-4" />
-                          </Button>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Networks Cards */}
-            <Card>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                DHCP Networks ({networks.length})
-              </h2>
-              
-              {networks.length === 0 ? (
-                <Alert color="info" icon={HiInformationCircle}>
-                  No DHCP networks configured. Create a network to get started.
-                </Alert>
-              ) : (
-                <>
-                  {/* Desktop Table View */}
-                  <div className="hidden min-[1000px]:block overflow-x-auto">
-                    <Table>
-                      <Table.Head>
-                        <Table.HeadCell>Network</Table.HeadCell>
-                        <Table.HeadCell>IP Range</Table.HeadCell>
-                        <Table.HeadCell>Lease Time</Table.HeadCell>
-                        <Table.HeadCell>DNS Servers</Table.HeadCell>
-                        <Table.HeadCell>Dynamic Domain</Table.HeadCell>
-                        <Table.HeadCell>Status</Table.HeadCell>
-                        <Table.HeadCell>Actions</Table.HeadCell>
-                      </Table.Head>
-                      <Table.Body className="divide-y">
-                        {networks.map((network) => (
-                          <Table.Row key={network.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                            <Table.Cell>
-                              <Badge color="blue">{network.network}</Badge>
-                            </Table.Cell>
+              {(() => {
+                const homelabNetwork = networks.find(n => n.network === 'homelab');
+                return !homelabNetwork ? (
+                  <Alert color="info" icon={HiInformationCircle}>
+                    No DHCP network configured for HOMELAB.
+                  </Alert>
+                ) : (
+                  <>
+                    {/* Desktop Table View */}
+                    <div className="hidden min-[1000px]:block overflow-x-auto">
+                      <Table>
+                        <Table.Head>
+                          <Table.HeadCell>IP Range</Table.HeadCell>
+                          <Table.HeadCell>Lease Time</Table.HeadCell>
+                          <Table.HeadCell>DNS Servers</Table.HeadCell>
+                          <Table.HeadCell>Dynamic Domain</Table.HeadCell>
+                          <Table.HeadCell>Status</Table.HeadCell>
+                          <Table.HeadCell>Actions</Table.HeadCell>
+                        </Table.Head>
+                        <Table.Body className="divide-y">
+                          <Table.Row key={homelabNetwork.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
                             <Table.Cell className="font-mono text-sm text-gray-900 dark:text-white">
-                              {network.start} - {network.end}
+                              {homelabNetwork.start} - {homelabNetwork.end}
                             </Table.Cell>
                             <Table.Cell className="text-gray-500 dark:text-gray-400">
-                              {network.lease_time}
+                              {homelabNetwork.lease_time}
                             </Table.Cell>
                             <Table.Cell className="text-gray-500 dark:text-gray-400">
-                              {network.dns_servers?.join(', ') || '-'}
+                              {homelabNetwork.dns_servers?.join(', ') || '-'}
                             </Table.Cell>
                             <Table.Cell className="text-gray-500 dark:text-gray-400">
-                              {network.dynamic_domain || '-'}
+                              {homelabNetwork.dynamic_domain || '-'}
                             </Table.Cell>
                             <Table.Cell>
-                              <Badge color={network.enabled ? "success" : "gray"}>
-                                {network.enabled ? "Enabled" : "Disabled"}
+                              <Badge color={homelabNetwork.enabled ? "success" : "gray"}>
+                                {homelabNetwork.enabled ? "Enabled" : "Disabled"}
                               </Badge>
                             </Table.Cell>
                             <Table.Cell>
@@ -507,14 +472,14 @@ export function Dhcp() {
                                 <Button
                                   size="xs"
                                   color="blue"
-                                  onClick={() => openReservationsView(network)}
+                                  onClick={() => openReservationsView(homelabNetwork)}
                                 >
                                   Reservations
                                 </Button>
                                 <Button
                                   size="xs"
                                   color="gray"
-                                  onClick={() => openNetworkModal(network)}
+                                  onClick={() => openNetworkModal(homelabNetwork)}
                                 >
                                   <HiPencil className="w-4 h-4" />
                                 </Button>
@@ -522,7 +487,7 @@ export function Dhcp() {
                                   size="xs"
                                   color="failure"
                                   onClick={() => {
-                                    setNetworkToDelete(network);
+                                    setNetworkToDelete(homelabNetwork);
                                     setDeleteNetworkModalOpen(true);
                                   }}
                                 >
@@ -531,30 +496,22 @@ export function Dhcp() {
                               </div>
                             </Table.Cell>
                           </Table.Row>
-                        ))}
-                      </Table.Body>
-                    </Table>
-                  </div>
+                        </Table.Body>
+                      </Table>
+                    </div>
 
-                  {/* Mobile/Tablet Card View */}
-                  <div className="min-[1000px]:hidden space-y-3">
-                    {networks.map((network) => (
-                      <div
-                        key={network.id}
-                        className="p-4 rounded-lg border bg-white border-gray-200 dark:bg-gray-800 dark:border-gray-700"
-                      >
+                    {/* Mobile/Tablet Card View */}
+                    <div className="min-[1000px]:hidden">
+                      <div className="p-4 rounded-lg border bg-white border-gray-200 dark:bg-gray-800 dark:border-gray-700">
                         {/* Header Row */}
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex-1">
-                            <Badge color="blue" size="sm" className="mb-2">
-                              {network.network}
-                            </Badge>
                             <div className="font-mono text-sm text-gray-900 dark:text-white">
-                              {network.start} - {network.end}
+                              {homelabNetwork.start} - {homelabNetwork.end}
                             </div>
                           </div>
-                          <Badge color={network.enabled ? "success" : "gray"} size="sm">
-                            {network.enabled ? "Enabled" : "Disabled"}
+                          <Badge color={homelabNetwork.enabled ? "success" : "gray"} size="sm">
+                            {homelabNetwork.enabled ? "Enabled" : "Disabled"}
                           </Badge>
                         </div>
 
@@ -562,20 +519,20 @@ export function Dhcp() {
                         <div className="space-y-2 text-sm mb-4">
                           <div className="flex justify-between">
                             <span className="text-gray-500 dark:text-gray-400">Lease Time:</span>
-                            <span className="text-gray-900 dark:text-gray-100">{network.lease_time}</span>
+                            <span className="text-gray-900 dark:text-gray-100">{homelabNetwork.lease_time}</span>
                           </div>
                           
-                          {network.dns_servers && network.dns_servers.length > 0 && (
+                          {homelabNetwork.dns_servers && homelabNetwork.dns_servers.length > 0 && (
                             <div className="flex justify-between">
                               <span className="text-gray-500 dark:text-gray-400">DNS Servers:</span>
-                              <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">{network.dns_servers.join(', ')}</span>
+                              <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">{homelabNetwork.dns_servers.join(', ')}</span>
                             </div>
                           )}
                           
-                          {network.dynamic_domain && (
+                          {homelabNetwork.dynamic_domain && (
                             <div className="flex justify-between">
                               <span className="text-gray-500 dark:text-gray-400">Dynamic Domain:</span>
-                              <span className="text-gray-900 dark:text-gray-100">{network.dynamic_domain}</span>
+                              <span className="text-gray-900 dark:text-gray-100">{homelabNetwork.dynamic_domain}</span>
                             </div>
                           )}
                         </div>
@@ -586,7 +543,7 @@ export function Dhcp() {
                             <Button
                               size="xs"
                               color="blue"
-                              onClick={() => openReservationsView(network)}
+                              onClick={() => openReservationsView(homelabNetwork)}
                               className="flex-1 min-w-[100px]"
                             >
                               Reservations
@@ -594,7 +551,7 @@ export function Dhcp() {
                             <Button
                               size="xs"
                               color="gray"
-                              onClick={() => openNetworkModal(network)}
+                              onClick={() => openNetworkModal(homelabNetwork)}
                               className="flex-1 min-w-[80px]"
                             >
                               <HiPencil className="w-4 h-4" />
@@ -603,7 +560,7 @@ export function Dhcp() {
                               size="xs"
                               color="failure"
                               onClick={() => {
-                                setNetworkToDelete(network);
+                                setNetworkToDelete(homelabNetwork);
                                 setDeleteNetworkModalOpen(true);
                               }}
                               className="flex-1 min-w-[80px]"
@@ -613,10 +570,215 @@ export function Dhcp() {
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </>
-              )}
+                    </div>
+                  </>
+                );
+              })()}
+            </Card>
+
+            {/* LAN Section */}
+            <Card>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">LAN</h2>
+                  {(() => {
+                    const status = dhcpServiceStatuses['lan'];
+                    const serviceKey = 'lan-';
+                    const isControlling = controllingDhcpService?.startsWith(serviceKey);
+                    return (
+                      <div className="flex gap-2 items-center flex-wrap">
+                        {status && (
+                          <Badge color={status.is_active ? "success" : "gray"} size="sm">
+                            {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
+                          </Badge>
+                        )}
+                        <Button
+                          size="xs"
+                          color="success"
+                          onClick={() => handleDhcpServiceControl('lan', 'start')}
+                          disabled={isControlling || (status?.is_active ?? false)}
+                          title="Start Service"
+                        >
+                          <HiPlay className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="failure"
+                          onClick={() => handleDhcpServiceControl('lan', 'stop')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Stop Service"
+                        >
+                          <HiStop className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="warning"
+                          onClick={() => handleDhcpServiceControl('lan', 'reload')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Reload Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="purple"
+                          onClick={() => handleDhcpServiceControl('lan', 'restart')}
+                          disabled={isControlling}
+                          title="Restart Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              
+              {(() => {
+                const lanNetwork = networks.find(n => n.network === 'lan');
+                return !lanNetwork ? (
+                  <Alert color="info" icon={HiInformationCircle}>
+                    No DHCP network configured for LAN.
+                  </Alert>
+                ) : (
+                  <>
+                    {/* Desktop Table View */}
+                    <div className="hidden min-[1000px]:block overflow-x-auto">
+                      <Table>
+                        <Table.Head>
+                          <Table.HeadCell>IP Range</Table.HeadCell>
+                          <Table.HeadCell>Lease Time</Table.HeadCell>
+                          <Table.HeadCell>DNS Servers</Table.HeadCell>
+                          <Table.HeadCell>Dynamic Domain</Table.HeadCell>
+                          <Table.HeadCell>Status</Table.HeadCell>
+                          <Table.HeadCell>Actions</Table.HeadCell>
+                        </Table.Head>
+                        <Table.Body className="divide-y">
+                          <Table.Row key={lanNetwork.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                            <Table.Cell className="font-mono text-sm text-gray-900 dark:text-white">
+                              {lanNetwork.start} - {lanNetwork.end}
+                            </Table.Cell>
+                            <Table.Cell className="text-gray-500 dark:text-gray-400">
+                              {lanNetwork.lease_time}
+                            </Table.Cell>
+                            <Table.Cell className="text-gray-500 dark:text-gray-400">
+                              {lanNetwork.dns_servers?.join(', ') || '-'}
+                            </Table.Cell>
+                            <Table.Cell className="text-gray-500 dark:text-gray-400">
+                              {lanNetwork.dynamic_domain || '-'}
+                            </Table.Cell>
+                            <Table.Cell>
+                              <Badge color={lanNetwork.enabled ? "success" : "gray"}>
+                                {lanNetwork.enabled ? "Enabled" : "Disabled"}
+                              </Badge>
+                            </Table.Cell>
+                            <Table.Cell>
+                              <div className="flex gap-2 flex-wrap">
+                                <Button
+                                  size="xs"
+                                  color="blue"
+                                  onClick={() => openReservationsView(lanNetwork)}
+                                >
+                                  Reservations
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  color="gray"
+                                  onClick={() => openNetworkModal(lanNetwork)}
+                                >
+                                  <HiPencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  color="failure"
+                                  onClick={() => {
+                                    setNetworkToDelete(lanNetwork);
+                                    setDeleteNetworkModalOpen(true);
+                                  }}
+                                >
+                                  <HiTrash className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        </Table.Body>
+                      </Table>
+                    </div>
+
+                    {/* Mobile/Tablet Card View */}
+                    <div className="min-[1000px]:hidden">
+                      <div className="p-4 rounded-lg border bg-white border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+                        {/* Header Row */}
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <div className="font-mono text-sm text-gray-900 dark:text-white">
+                              {lanNetwork.start} - {lanNetwork.end}
+                            </div>
+                          </div>
+                          <Badge color={lanNetwork.enabled ? "success" : "gray"} size="sm">
+                            {lanNetwork.enabled ? "Enabled" : "Disabled"}
+                          </Badge>
+                        </div>
+
+                        {/* Details Grid */}
+                        <div className="space-y-2 text-sm mb-4">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">Lease Time:</span>
+                            <span className="text-gray-900 dark:text-gray-100">{lanNetwork.lease_time}</span>
+                          </div>
+                          
+                          {lanNetwork.dns_servers && lanNetwork.dns_servers.length > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 dark:text-gray-400">DNS Servers:</span>
+                              <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">{lanNetwork.dns_servers.join(', ')}</span>
+                            </div>
+                          )}
+                          
+                          {lanNetwork.dynamic_domain && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500 dark:text-gray-400">Dynamic Domain:</span>
+                              <span className="text-gray-900 dark:text-gray-100">{lanNetwork.dynamic_domain}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              size="xs"
+                              color="blue"
+                              onClick={() => openReservationsView(lanNetwork)}
+                              className="flex-1 min-w-[100px]"
+                            >
+                              Reservations
+                            </Button>
+                            <Button
+                              size="xs"
+                              color="gray"
+                              onClick={() => openNetworkModal(lanNetwork)}
+                              className="flex-1 min-w-[80px]"
+                            >
+                              <HiPencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="xs"
+                              color="failure"
+                              onClick={() => {
+                                setNetworkToDelete(lanNetwork);
+                                setDeleteNetworkModalOpen(true);
+                              }}
+                              className="flex-1 min-w-[80px]"
+                            >
+                              <HiTrash className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </Card>
 
             {/* Network Modal */}
@@ -726,7 +888,7 @@ export function Dhcp() {
             {/* Reservations View Modal */}
             <Modal show={reservationsViewModalOpen} onClose={closeReservationsView} size="6xl">
               <Modal.Header>
-                Reservations - {selectedNetwork?.network.toUpperCase()}
+                {selectedNetwork ? `${selectedNetwork.network.toUpperCase()} DHCP Reservations` : 'DHCP Reservations'}
               </Modal.Header>
               <Modal.Body className="max-h-[80vh] overflow-y-auto">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
