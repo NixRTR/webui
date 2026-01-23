@@ -158,7 +158,7 @@ async def _write_dhcp_config_and_reload(
     change_type: str,
     change_details: dict
 ) -> None:
-    """Generate DHCP config from files, write it, and reload dnsmasq service
+    """Generate DHCP config from files, write it, and restart dnsmasq service
     
     Args:
         db: Database session (for history tracking only)
@@ -181,11 +181,11 @@ async def _write_dhcp_config_and_reload(
             # DHCP disabled - write empty file
             write_dhcp_config(network, "# DHCP disabled\n")
         
-        # Reload dnsmasq service
+        # Restart dnsmasq service (dnsmasq doesn't support reload)
         service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
-        _control_service_via_systemctl(service_name, "reload")
+        _control_service_via_systemctl(service_name, "restart")
         
-        logger.info(f"DHCP config written and service reloaded for network {network}")
+        logger.info(f"DHCP config written and service restarted for network {network}")
     except Exception as e:
         logger.error(f"Failed to write DHCP config for network {network}: {e}", exc_info=True)
         # Don't raise - allow the API call to succeed even if config write fails
@@ -845,9 +845,9 @@ async def sync_dhcp_config(
             # DHCP disabled - write empty file
             write_dhcp_config(network, "# DHCP disabled\n")
         
-        # Reload dnsmasq service
+        # Restart dnsmasq service (dnsmasq doesn't support reload)
         service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
-        _control_service_via_systemctl(service_name, "reload")
+        _control_service_via_systemctl(service_name, "restart")
         
         logger.info(f"DHCP config synced for network {network}")
         
@@ -893,9 +893,9 @@ async def import_dhcp_from_config(
             # DHCP disabled - write empty file
             write_dhcp_config(network, "# DHCP disabled\n")
         
-        # Reload dnsmasq service
+        # Restart dnsmasq service (dnsmasq doesn't support reload)
         service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
-        _control_service_via_systemctl(service_name, "reload")
+        _control_service_via_systemctl(service_name, "restart")
         
         logger.info(f"DHCP config regenerated from config files for network {network}")
         

@@ -151,11 +151,15 @@ def _send_command(command: str, content: Optional[str]) -> None:
         
         # Check if there was an error in the response
         response_str = response.decode('utf-8', errors='ignore')
-        if "Invalid" in response_str or "Failed" in response_str or "error" in response_str.lower():
+        if "Invalid" in response_str or "Failed" in response_str or "error" in response_str.lower() or "Error:" in response_str:
             logger.error(f"Config writer returned error: {response_str}")
             raise subprocess.CalledProcessError(1, f"config writer command", stderr=response_str)
         
-        logger.debug(f"Config writer command '{command}' completed successfully")
+        # Log warnings (like reload failures) but don't fail
+        if "Warning:" in response_str or "Warning" in response_str:
+            logger.warning(f"Config writer warning: {response_str}")
+        
+        logger.debug(f"Config writer command '{command}' completed successfully: {response_str}")
         
     except (socket.error, OSError) as e:
         logger.error(f"Failed to communicate with config writer socket: {e}")
