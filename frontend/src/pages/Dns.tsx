@@ -358,7 +358,59 @@ export function Dns() {
             {/* HOMELAB Section */}
             <Card className="mb-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">HOMELAB</h2>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">HOMELAB</h2>
+                  {(() => {
+                    const status = serviceStatuses['homelab'];
+                    const serviceKey = 'homelab-';
+                    const isControlling = controllingService?.startsWith(serviceKey);
+                    return (
+                      <div className="flex gap-2 items-center flex-wrap">
+                        {status && (
+                          <Badge color={status.is_active ? "success" : "gray"} size="sm">
+                            {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
+                          </Badge>
+                        )}
+                        <Button
+                          size="xs"
+                          color="success"
+                          onClick={() => handleServiceControl('homelab', 'start')}
+                          disabled={isControlling || (status?.is_active ?? false)}
+                          title="Start Service"
+                        >
+                          <HiPlay className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="failure"
+                          onClick={() => handleServiceControl('homelab', 'stop')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Stop Service"
+                        >
+                          <HiStop className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="warning"
+                          onClick={() => handleServiceControl('homelab', 'reload')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Reload Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="purple"
+                          onClick={() => handleServiceControl('homelab', 'restart')}
+                          disabled={isControlling}
+                          title="Restart Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
                 <Button
                   color="blue"
                   onClick={() => openZoneModal(undefined, 'homelab')}
@@ -429,51 +481,6 @@ export function Dns() {
                                 >
                                   <HiPencil className="w-4 h-4" />
                                 </Button>
-                                {(() => {
-                                  const serviceStatus = getServiceStatusForZone(zone);
-                                  const serviceKey = `${zone.network}-`;
-                                  const isControlling = controllingService?.startsWith(serviceKey);
-                                  return (
-                                    <>
-                                      <Button
-                                        size="xs"
-                                        color="success"
-                                        onClick={() => handleServiceControl(zone.network, 'start')}
-                                        disabled={isControlling || serviceStatus.is_active}
-                                        title="Start Service"
-                                      >
-                                        <HiPlay className="w-4 h-4" />
-                                      </Button>
-                                      <Button
-                                        size="xs"
-                                        color="failure"
-                                        onClick={() => handleServiceControl(zone.network, 'stop')}
-                                        disabled={isControlling || !serviceStatus.is_active}
-                                        title="Stop Service"
-                                      >
-                                        <HiStop className="w-4 h-4" />
-                                      </Button>
-                                      <Button
-                                        size="xs"
-                                        color="warning"
-                                        onClick={() => handleServiceControl(zone.network, 'reload')}
-                                        disabled={isControlling || !serviceStatus.is_active}
-                                        title="Reload Service"
-                                      >
-                                        <HiRefresh className="w-4 h-4" />
-                                      </Button>
-                                      <Button
-                                        size="xs"
-                                        color="purple"
-                                        onClick={() => handleServiceControl(zone.network, 'restart')}
-                                        disabled={isControlling}
-                                        title="Restart Service"
-                                      >
-                                        <HiRefresh className="w-4 h-4" />
-                                      </Button>
-                                    </>
-                                  );
-                                })()}
                                 <Button
                                   size="xs"
                                   color="failure"
@@ -570,48 +577,6 @@ export function Dns() {
                                 <HiTrash className="w-4 h-4" />
                               </Button>
                             </div>
-                            <div className="flex gap-2 flex-wrap">
-                              <Button
-                                size="xs"
-                                color="success"
-                                onClick={() => handleServiceControl(zone.network, 'start')}
-                                disabled={isControlling || serviceStatus.is_active}
-                                title="Start Service"
-                                className="flex-1 min-w-[70px]"
-                              >
-                                <HiPlay className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="xs"
-                                color="failure"
-                                onClick={() => handleServiceControl(zone.network, 'stop')}
-                                disabled={isControlling || !serviceStatus.is_active}
-                                title="Stop Service"
-                                className="flex-1 min-w-[70px]"
-                              >
-                                <HiStop className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="xs"
-                                color="warning"
-                                onClick={() => handleServiceControl(zone.network, 'reload')}
-                                disabled={isControlling || !serviceStatus.is_active}
-                                title="Reload Service"
-                                className="flex-1 min-w-[70px]"
-                              >
-                                <HiRefresh className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="xs"
-                                color="purple"
-                                onClick={() => handleServiceControl(zone.network, 'restart')}
-                                disabled={isControlling}
-                                title="Restart Service"
-                                className="flex-1 min-w-[70px]"
-                              >
-                                <HiRefresh className="w-4 h-4" />
-                              </Button>
-                            </div>
                           </div>
                         </div>
                         );
@@ -625,7 +590,59 @@ export function Dns() {
             {/* LAN Section */}
             <Card>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">LAN</h2>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">LAN</h2>
+                  {(() => {
+                    const status = serviceStatuses['lan'];
+                    const serviceKey = 'lan-';
+                    const isControlling = controllingService?.startsWith(serviceKey);
+                    return (
+                      <div className="flex gap-2 items-center flex-wrap">
+                        {status && (
+                          <Badge color={status.is_active ? "success" : "gray"} size="sm">
+                            {status.is_active ? "Running" : status.is_enabled ? "Stopped" : "Disabled"}
+                          </Badge>
+                        )}
+                        <Button
+                          size="xs"
+                          color="success"
+                          onClick={() => handleServiceControl('lan', 'start')}
+                          disabled={isControlling || (status?.is_active ?? false)}
+                          title="Start Service"
+                        >
+                          <HiPlay className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="failure"
+                          onClick={() => handleServiceControl('lan', 'stop')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Stop Service"
+                        >
+                          <HiStop className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="warning"
+                          onClick={() => handleServiceControl('lan', 'reload')}
+                          disabled={isControlling || !(status?.is_active ?? false)}
+                          title="Reload Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="xs"
+                          color="purple"
+                          onClick={() => handleServiceControl('lan', 'restart')}
+                          disabled={isControlling}
+                          title="Restart Service"
+                        >
+                          <HiRefresh className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
                 <Button
                   color="blue"
                   onClick={() => openZoneModal(undefined, 'lan')}
@@ -696,51 +713,6 @@ export function Dns() {
                                   >
                                     <HiPencil className="w-4 h-4" />
                                   </Button>
-                                  {(() => {
-                                    const serviceStatus = getServiceStatusForZone(zone);
-                                    const serviceKey = `${zone.network}-`;
-                                    const isControlling = controllingService?.startsWith(serviceKey);
-                                    return (
-                                      <>
-                                        <Button
-                                          size="xs"
-                                          color="success"
-                                          onClick={() => handleServiceControl(zone.network, 'start')}
-                                          disabled={isControlling || serviceStatus.is_active}
-                                          title="Start Service"
-                                        >
-                                          <HiPlay className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          size="xs"
-                                          color="failure"
-                                          onClick={() => handleServiceControl(zone.network, 'stop')}
-                                          disabled={isControlling || !serviceStatus.is_active}
-                                          title="Stop Service"
-                                        >
-                                          <HiStop className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          size="xs"
-                                          color="warning"
-                                          onClick={() => handleServiceControl(zone.network, 'reload')}
-                                          disabled={isControlling || !serviceStatus.is_active}
-                                          title="Reload Service"
-                                        >
-                                          <HiRefresh className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          size="xs"
-                                          color="purple"
-                                          onClick={() => handleServiceControl(zone.network, 'restart')}
-                                          disabled={isControlling}
-                                          title="Restart Service"
-                                        >
-                                          <HiRefresh className="w-4 h-4" />
-                                        </Button>
-                                      </>
-                                    );
-                                  })()}
                                   <Button
                                     size="xs"
                                     color="failure"
@@ -835,48 +807,6 @@ export function Dns() {
                                   className="flex-1 min-w-[80px]"
                                 >
                                   <HiTrash className="w-4 h-4" />
-                                </Button>
-                              </div>
-                              <div className="flex gap-2 flex-wrap">
-                                <Button
-                                  size="xs"
-                                  color="success"
-                                  onClick={() => handleServiceControl(zone.network, 'start')}
-                                  disabled={isControlling || serviceStatus.is_active}
-                                  title="Start Service"
-                                  className="flex-1 min-w-[70px]"
-                                >
-                                  <HiPlay className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  color="failure"
-                                  onClick={() => handleServiceControl(zone.network, 'stop')}
-                                  disabled={isControlling || !serviceStatus.is_active}
-                                  title="Stop Service"
-                                  className="flex-1 min-w-[70px]"
-                                >
-                                  <HiStop className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  color="warning"
-                                  onClick={() => handleServiceControl(zone.network, 'reload')}
-                                  disabled={isControlling || !serviceStatus.is_active}
-                                  title="Reload Service"
-                                  className="flex-1 min-w-[70px]"
-                                >
-                                  <HiRefresh className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  color="purple"
-                                  onClick={() => handleServiceControl(zone.network, 'restart')}
-                                  disabled={isControlling}
-                                  title="Restart Service"
-                                  className="flex-1 min-w-[70px]"
-                                >
-                                  <HiRefresh className="w-4 h-4" />
                                 </Button>
                               </div>
                             </div>
