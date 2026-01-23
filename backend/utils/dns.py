@@ -147,6 +147,16 @@ def _parse_a_records(content: str) -> Dict[str, Dict[str, str]]:
     pattern = r'"([^"]+)"\s*=\s*\{[^}]*ip\s*=\s*"([^"]+)";[^}]*(?:comment\s*=\s*"([^"]*)";)?[^}]*\}'
     
     for match in re.finditer(pattern, content, re.DOTALL):
+        # Check if this match is within a commented-out section
+        # Get the line where the match starts
+        match_start = match.start()
+        line_start = content.rfind('\n', 0, match_start) + 1
+        line_prefix = content[line_start:match_start].strip()
+        
+        # Skip if the line starts with #
+        if line_prefix.startswith('#'):
+            continue
+        
         hostname = match.group(1)
         ip = match.group(2)
         comment = match.group(3) if match.group(3) else None
@@ -174,6 +184,16 @@ def _parse_cname_records(content: str) -> Dict[str, Dict[str, str]]:
     pattern = r'"([^"]+)"\s*=\s*\{[^}]*target\s*=\s*"([^"]+)";[^}]*(?:comment\s*=\s*"([^"]*)";)?[^}]*\}'
     
     for match in re.finditer(pattern, content, re.DOTALL):
+        # Check if this match is within a commented-out section
+        # Get the line where the match starts
+        match_start = match.start()
+        line_start = content.rfind('\n', 0, match_start) + 1
+        line_prefix = content[line_start:match_start].strip()
+        
+        # Skip if the line starts with #
+        if line_prefix.startswith('#'):
+            continue
+        
         hostname = match.group(1)
         target = match.group(2)
         comment = match.group(3) if match.group(3) else None
