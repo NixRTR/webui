@@ -6,6 +6,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 from pydantic import BaseModel
 import subprocess
+import logging
 from sqlalchemy import select, or_
 from sqlalchemy.sql import cast
 from sqlalchemy.types import String
@@ -271,56 +272,88 @@ def _run_nft(args: list[str]) -> None:
         raise HTTPException(status_code=500, detail="nft command not found")
 
 
+logger = logging.getLogger(__name__)
+
+
 @router.get("/blocked")
 async def list_blocked(_: str = Depends(get_current_user)) -> dict:
     """List blocked devices from nft sets (IPs and MACs)"""
+    
     result = {"ipv4": [], "ipv6": [], "macs": []}
+    
+    # Find nft binary
+    try:
+        nft_bin = _find_nft()
+    except Exception as e:
+        logger.error(f"Failed to find nft binary: {e}")
+        return result
+    
+    # Helper function to parse nft set output
+    def parse_nft_set_output(stdout: str) -> List[str]:
+        """Parse nft list set output to extract elements"""
+        items = []
+        if not stdout:
+            return items
+        
+        for line in stdout.splitlines():
+            line = line.strip()
+            # Handle both "elements = { ... }" and "elements = { ... }" formats
+            if line.startswith("elements ="):
+                try:
+                    # Extract content between braces
+                    if "{" in line and "}" in line:
+                        inside = line.split("{", 1)[1].rsplit("}", 1)[0]
+                        # Split by comma and clean up
+                        items = [i.strip() for i in inside.split(",") if i.strip()]
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to parse nft output line '{line}': {e}")
+                    continue
+        return items
+    
+    # Get IPv4 blocked addresses
     try:
         out_v4 = subprocess.run(
-            ["nft", "list", "set", "inet", "router_block", "blocked_v4"],
+            [nft_bin, "list", "set", "inet", "router_block", "blocked_v4"],
             capture_output=True, text=True, timeout=2
         )
         if out_v4.returncode == 0:
-            # Parse elements = { 192.168.1.2, 192.168.1.3 }
-            for line in out_v4.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("elements ="):
-                    inside = line.split("{",1)[1].split("}",1)[0]
-                    items = [i.strip() for i in inside.split(",") if i.strip()]
-                    result["ipv4"] = items
-                    break
-    except Exception:
-        pass
+            result["ipv4"] = parse_nft_set_output(out_v4.stdout)
+            logger.debug(f"Found {len(result['ipv4'])} blocked IPv4 addresses")
+        else:
+            logger.warning(f"nft list set blocked_v4 failed with return code {out_v4.returncode}: {out_v4.stderr}")
+    except Exception as e:
+        logger.error(f"Exception while listing blocked IPv4 addresses: {e}", exc_info=True)
+    
+    # Get IPv6 blocked addresses
     try:
         out_v6 = subprocess.run(
-            ["nft", "list", "set", "inet", "router_block", "blocked_v6"],
+            [nft_bin, "list", "set", "inet", "router_block", "blocked_v6"],
             capture_output=True, text=True, timeout=2
         )
         if out_v6.returncode == 0:
-            for line in out_v6.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("elements ="):
-                    inside = line.split("{",1)[1].split("}",1)[0]
-                    items = [i.strip() for i in inside.split(",") if i.strip()]
-                    result["ipv6"] = items
-                    break
-    except Exception:
-        pass
+            result["ipv6"] = parse_nft_set_output(out_v6.stdout)
+            logger.debug(f"Found {len(result['ipv6'])} blocked IPv6 addresses")
+        else:
+            logger.warning(f"nft list set blocked_v6 failed with return code {out_v6.returncode}: {out_v6.stderr}")
+    except Exception as e:
+        logger.error(f"Exception while listing blocked IPv6 addresses: {e}", exc_info=True)
+    
+    # Get blocked MAC addresses
     try:
         out_macs = subprocess.run(
-            ["nft", "list", "set", "bridge", "router_block_mac", "blocked_macs"],
+            [nft_bin, "list", "set", "bridge", "router_block_mac", "blocked_macs"],
             capture_output=True, text=True, timeout=2
         )
         if out_macs.returncode == 0:
-            for line in out_macs.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("elements ="):
-                    inside = line.split("{",1)[1].split("}",1)[0]
-                    items = [i.strip() for i in inside.split(",") if i.strip()]
-                    result["macs"] = [i.lower() for i in items]
-                    break
-    except Exception:
-        pass
+            mac_items = parse_nft_set_output(out_macs.stdout)
+            result["macs"] = [m.lower() for m in mac_items]
+            logger.debug(f"Found {len(result['macs'])} blocked MAC addresses")
+        else:
+            logger.warning(f"nft list set blocked_macs failed with return code {out_macs.returncode}: {out_macs.stderr}")
+    except Exception as e:
+        logger.error(f"Exception while listing blocked MAC addresses: {e}", exc_info=True)
+    
     return result
 
 
