@@ -31,7 +31,7 @@ export function Clients() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, online, offline
   const [filterType, setFilterType] = useState('all'); // all, dhcp, static
-  const [filterNetwork, setFilterNetwork] = useState('all'); // all, homelab, lan
+  const [activeTab, setActiveTab] = useState<'all' | 'homelab' | 'lan'>('all'); // Tab selection
   const [devices, setDevices] = useState<NetworkDevice[]>([]);
   const [blockedV4, setBlockedV4] = useState<string[]>([]);
   const [blockedMacs, setBlockedMacs] = useState<string[]>([]);
