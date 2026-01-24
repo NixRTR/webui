@@ -152,7 +152,7 @@ export function Clients() {
       setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
     }
     try {
-      await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -160,12 +160,36 @@ export function Clients() {
         },
         body: JSON.stringify(body),
       });
+      
+      if (response.ok) {
+        // Refetch blocked list immediately after successful operation
+        // This ensures the UI state matches the actual backend state
+        const blockedResponse = await fetch('/api/devices/blocked', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (blockedResponse.ok) {
+          const blockedData = await blockedResponse.json();
+          setBlockedV4(blockedData.ipv4 || []);
+          setBlockedMacs((blockedData.macs || []).map((m: string) => m.toLowerCase()));
+        }
+      } else {
+        // API call failed, revert optimistic update
+        if (blocked) {
+          setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+          setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
+        } else {
+          setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+          setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
+        }
+      }
     } catch (e) {
-      // revert on error
+      // Network error, revert optimistic update
       if (blocked) {
         setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+        setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
       } else {
         setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+        setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
       }
     }
   };
