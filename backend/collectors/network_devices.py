@@ -4,12 +4,15 @@ Discovers all devices on the network using ARP table and optional active scannin
 """
 import subprocess
 import re
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Optional
 from ..models import DHCPLease
 import os
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class NetworkDevice:
@@ -149,33 +152,74 @@ def determine_network(ip_address: str, interface: str) -> str:
     return 'homelab'
 
 
-# Cache the manuf parser instance for performance
-_manuf_parser = None
+# Cache for vendor lookups (key: normalized MAC, value: vendor name or None)
+_vendor_cache: Dict[str, Optional[str]] = {}
+_mac_lookup = None
 
-def _get_manuf_parser():
-    """Get or create the manuf parser instance (cached)"""
-    global _manuf_parser
-    if _manuf_parser is None:
+def _get_mac_lookup():
+    """Get or create the MacLookup instance (cached)"""
+    global _mac_lookup
+    if _mac_lookup is None:
         try:
-            from manuf import Manuf
-            # Initialize manuf parser (loads OUI database)
+            from mac_vendor_lookup import MacLookup
+            # Initialize MacLookup (loads IEEE OUI database)
             # The database is automatically downloaded/cached on first use
-            _manuf_parser = Manuf()
+            _mac_lookup = MacLookup()
         except ImportError:
-            # manuf not available
-            _manuf_parser = False  # Use False to indicate unavailable
-    return _manuf_parser if _manuf_parser is not False else None
+            # mac-vendor-lookup not available
+            logger.warning("mac-vendor-lookup not available, using fallback")
+            _mac_lookup = False  # Use False to indicate unavailable
+    return _mac_lookup if _mac_lookup is not False else None
+
+
+def _normalize_mac(mac_address: str) -> str:
+    """Normalize MAC address to lowercase with colons
+    
+    Handles various MAC address formats:
+    - aa:bb:cc:dd:ee:ff (colons)
+    - aa-bb-cc-dd-ee-ff (dashes)
+    - aabbccddeeff (no separators)
+    - AA:BB:CC:DD:EE:FF (uppercase)
+    
+    Args:
+        mac_address: MAC address in any format
+        
+    Returns:
+        Normalized MAC address in format aa:bb:cc:dd:ee:ff or original if invalid
+    """
+    if not mac_address:
+        return mac_address
+    
+    # Remove common separators and convert to lowercase
+    mac = mac_address.lower().replace('-', ':').replace('.', ':')
+    
+    # Try to parse as colon-separated format
+    parts = [p for p in mac.split(':') if p]
+    if len(parts) == 6:
+        # Validate each part is 2 hex characters
+        if all(len(p) == 2 and all(c in '0123456789abcdef' for c in p) for p in parts):
+            return ':'.join(parts)
+    
+    # Try as continuous string (no separators)
+    mac_clean = ''.join(c for c in mac if c.isalnum())
+    if len(mac_clean) == 12 and all(c in '0123456789abcdef' for c in mac_clean):
+        return ':'.join([mac_clean[i:i+2] for i in range(0, 12, 2)])
+    
+    # If we can't normalize, return lowercase version of original
+    return mac_address.lower()
 
 
 def lookup_mac_vendor(mac_address: str) -> Optional[str]:
-    """Look up vendor from MAC address OUI (first 3 octets)
+    """Look up vendor from MAC address OUI with caching
     
-    Uses the manuf library which provides a comprehensive OUI database
-    based on Wireshark's manufacturer database. Falls back to a small
-    hardcoded dictionary if manuf is not available.
+    Uses the mac-vendor-lookup library which provides a comprehensive OUI database
+    based on IEEE's manufacturer database. Falls back to a small hardcoded
+    dictionary if the library is not available.
+    
+    Results are cached to avoid repeated lookups for the same MAC address.
     
     Args:
-        mac_address: MAC address (format: aa:bb:cc:dd:ee:ff)
+        mac_address: MAC address (format: aa:bb:cc:dd:ee:ff or any common format)
         
     Returns:
         Vendor name or None
@@ -183,19 +227,27 @@ def lookup_mac_vendor(mac_address: str) -> Optional[str]:
     if not mac_address or len(mac_address) < 8:
         return None
     
-    # Try using manuf library first (comprehensive database)
-    parser = _get_manuf_parser()
-    if parser:
-        try:
-            result = parser.get_manuf(mac_address)
-            if result and result.manuf:
-                return result.manuf
-        except Exception as e:
-            # Log error but continue to fallback
-            print(f"Warning: manuf lookup failed for {mac_address}: {e}")
+    # Normalize MAC address for consistent caching
+    normalized_mac = _normalize_mac(mac_address)
     
-    # Fallback: Common vendor OUIs (kept for compatibility)
-    oui_vendors = {
+    # Check cache first
+    if normalized_mac in _vendor_cache:
+        return _vendor_cache[normalized_mac]
+    
+    # Try using mac-vendor-lookup library
+    lookup = _get_mac_lookup()
+    if lookup:
+        try:
+            vendor = lookup.lookup(normalized_mac)
+            if vendor:
+                _vendor_cache[normalized_mac] = vendor
+                return vendor
+        except Exception as e:
+            logger.debug(f"mac-vendor-lookup failed for {normalized_mac}: {e}")
+    
+    # Fallback: Minimal hardcoded dictionary (keep for compatibility)
+    oui = ':'.join(normalized_mac.split(':')[:3])
+    fallback_vendors = {
         '00:07:a6': 'Leviton',
         'd8:a0:11': 'WiZ Connected',
         '48:a2:e6': 'Ubiquiti',
@@ -205,11 +257,9 @@ def lookup_mac_vendor(mac_address: str) -> Optional[str]:
         '6c:29:90': 'WiZ Connected',
         '84:7a:b6': 'Honeywell',
     }
-    
-    # Extract OUI (first 3 octets)
-    oui = ':'.join(mac_address.split(':')[:3]).lower()
-    
-    return oui_vendors.get(oui)
+    vendor = fallback_vendors.get(oui)
+    _vendor_cache[normalized_mac] = vendor
+    return vendor
 
 
 def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[NetworkDevice]:
