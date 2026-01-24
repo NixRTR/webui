@@ -17,23 +17,23 @@ DEFAULT_APPRISE_CONFIG = "/var/lib/apprise/config/apprise"
 
 
 def is_apprise_enabled_in_config() -> bool:
-    """Check if Apprise is enabled in router-config.nix
+    """Check if Apprise is enabled in config/apprise.nix
     
     Returns:
         True if apprise.enable = true, False otherwise
     """
     try:
-        with open(settings.router_config_file, 'r') as f:
-            content = f.read()
+        # Import here to avoid circular dependency
+        from ..utils.apprise_parser import parse_apprise_nix_file
         
-        # Look for apprise configuration block
-        # Check for enable = true (uncommented)
-        apprise_pattern = r'apprise\s*=\s*\{[^}]*enable\s*=\s*true'
-        if re.search(apprise_pattern, content, re.DOTALL | re.IGNORECASE):
-            return True
+        # Parse the apprise.nix file directly
+        config = parse_apprise_nix_file()
+        if config is None:
+            return False
         
-        return False
-    except (FileNotFoundError, IOError, PermissionError):
+        return config.get('enable', False) is True
+    except (FileNotFoundError, IOError, PermissionError, Exception) as e:
+        logger.debug(f"Error checking Apprise enabled status: {e}")
         return False
 
 
