@@ -155,7 +155,6 @@ async def get_all_devices(
     for device in devices:
         key = device.mac_address.lower()
         ov = overrides.get(key)
-        ov = overrides.get(key)
         enriched.append(NetworkDevice(
             network=device.network,
             ip_address=device.ip_address,
@@ -169,6 +168,25 @@ async def get_all_devices(
             nickname=ov.get('nickname') if ov else None,
             favorite=ov.get('favorite', False) if ov else False,
         ))
+
+    # Final deduplication by MAC address
+    # If multiple devices have the same MAC, keep the one with:
+    # 1. Most recent last_seen timestamp, OR
+    # 2. If timestamps are equal, prefer online devices
+    devices_by_mac: Dict[str, NetworkDevice] = {}
+    for device in enriched:
+        mac_lower = device.mac_address.lower()
+        if mac_lower in devices_by_mac:
+            existing = devices_by_mac[mac_lower]
+            # Prefer device with more recent last_seen, or if equal, prefer online
+            if (device.last_seen > existing.last_seen) or \
+               (device.last_seen == existing.last_seen and device.is_online and not existing.is_online):
+                devices_by_mac[mac_lower] = device
+        else:
+            devices_by_mac[mac_lower] = device
+    
+    # Convert back to list
+    enriched = list(devices_by_mac.values())
 
     # Sort: favorites first, then by nickname/hostname
     enriched.sort(key=lambda d: (not d.favorite, (d.nickname or d.hostname or "").lower()))

@@ -219,14 +219,18 @@ def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[Networ
     - ARP table entries (active devices)
     - DHCP lease data (known DHCP clients)
     
+    Deduplicates by MAC address - if the same MAC appears with multiple IPs,
+    keeps the device with the most recent timestamp or prefers online devices.
+    
     Args:
         dhcp_leases: Optional list of DHCP leases to merge
         
     Returns:
-        List of NetworkDevice objects
+        List of NetworkDevice objects (one per MAC address)
     """
-    devices = []
-    seen_macs = set()
+    # Use dictionary to deduplicate by MAC address
+    # Key: MAC address (lowercase), Value: NetworkDevice
+    devices_by_mac: Dict[str, NetworkDevice] = {}
     
     # Parse ARP table for active devices
     arp_devices = parse_arp_table()
@@ -242,11 +246,12 @@ def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[Networ
     # Process ARP table entries
     for ip, arp_data in arp_devices.items():
         mac = arp_data['mac_address']
+        mac_lower = mac.lower()
         interface = arp_data['interface']
         network = determine_network(ip, interface)
         
         # Check if this device has a DHCP lease
-        dhcp_lease = dhcp_by_mac.get(mac) or dhcp_by_ip.get(ip)
+        dhcp_lease = dhcp_by_mac.get(mac_lower) or dhcp_by_ip.get(ip)
         
         hostname = None
         is_dhcp = False
@@ -260,7 +265,7 @@ def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[Networ
         # Look up vendor
         vendor = lookup_mac_vendor(mac)
         
-        device = NetworkDevice(
+        new_device = NetworkDevice(
             network=network,
             ip_address=ip,
             mac_address=mac,
@@ -272,13 +277,24 @@ def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[Networ
             vendor=vendor
         )
         
-        devices.append(device)
-        seen_macs.add(mac)
+        # Check if we already have this MAC address
+        if mac_lower in devices_by_mac:
+            existing_device = devices_by_mac[mac_lower]
+            # Prefer the new device if:
+            # 1. It's online and existing is offline, OR
+            # 2. It has a more recent last_seen timestamp
+            if (new_device.is_online and not existing_device.is_online) or \
+               (new_device.last_seen > existing_device.last_seen):
+                devices_by_mac[mac_lower] = new_device
+        else:
+            # First time seeing this MAC
+            devices_by_mac[mac_lower] = new_device
     
     # Add DHCP leases that aren't in ARP table (offline devices)
     if dhcp_leases:
         for lease in dhcp_leases:
-            if lease.mac_address.lower() not in seen_macs:
+            mac_lower = lease.mac_address.lower()
+            if mac_lower not in devices_by_mac:
                 vendor = lookup_mac_vendor(lease.mac_address)
                 
                 device = NetworkDevice(
@@ -293,9 +309,10 @@ def discover_network_devices(dhcp_leases: List[DHCPLease] = None) -> List[Networ
                     vendor=vendor
                 )
                 
-                devices.append(device)
+                devices_by_mac[mac_lower] = device
     
-    return devices
+    # Convert dictionary to list
+    return list(devices_by_mac.values())
 
 
 def get_device_count_by_network() -> Dict[str, Dict[str, int]]:
