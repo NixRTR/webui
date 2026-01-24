@@ -189,14 +189,20 @@ export function Clients() {
       (filterType === 'dhcp' && device.is_dhcp) ||
       (filterType === 'static' && !device.is_dhcp);
     
-    // Network filter
-    const matchesNetwork = filterNetwork === 'all' || device.network === filterNetwork;
+    // Network filter (based on active tab)
+    const matchesNetwork = activeTab === 'all' || device.network === activeTab;
     
     return matchesSearch && matchesStatus && matchesType && matchesNetwork;
   });
 
-  const onlineCount = devices.filter(d => d.is_online).length;
-  const offlineCount = devices.filter(d => !d.is_online).length;
+  // Calculate counts based on active tab
+  const tabDevices = activeTab === 'all' 
+    ? devices 
+    : devices.filter(d => d.network === activeTab);
+  
+  const onlineCount = tabDevices.filter(d => d.is_online).length;
+  const offlineCount = tabDevices.filter(d => !d.is_online).length;
+  const totalCount = tabDevices.length;
 
   // Helper function to format last seen date
   const formatLastSeen = (dateString: string): string => {
@@ -251,12 +257,55 @@ export function Clients() {
             <div className="flex gap-2 md:gap-4">
               <Badge color="success" size="sm" className="md:text-base">{onlineCount} Online</Badge>
               <Badge color="gray" size="sm" className="md:text-base">{offlineCount} Offline</Badge>
-              <Badge color="info" size="sm" className="md:text-base">{devices.length} Total</Badge>
+              <Badge color="info" size="sm" className="md:text-base">{totalCount} Total</Badge>
             </div>
           </div>
           
           <Card>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            {/* Network Tabs */}
+            <div className="mb-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex space-x-1" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={activeTab === 'all'}
+                  onClick={() => setActiveTab('all')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'all'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  All Networks
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={activeTab === 'homelab'}
+                  onClick={() => setActiveTab('homelab')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'homelab'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  HOMELAB
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={activeTab === 'lan'}
+                  onClick={() => setActiveTab('lan')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'lan'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  LAN
+                </button>
+              </div>
+            </div>
+
+            {/* Filters - shared across all tabs */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
                 <TextInput
                   icon={HiSearch}
@@ -285,17 +334,6 @@ export function Clients() {
                   <option value="all">All Types</option>
                   <option value="dhcp">DHCP Only</option>
                   <option value="static">Static Only</option>
-                </Select>
-              </div>
-              
-              <div>
-                <Select
-                  value={filterNetwork}
-                  onChange={(e) => setFilterNetwork(e.target.value)}
-                >
-                  <option value="all">All Networks</option>
-                  <option value="homelab">HOMELAB</option>
-                  <option value="lan">LAN</option>
                 </Select>
               </div>
             </div>
@@ -542,7 +580,8 @@ export function Clients() {
             
             <div className="mt-4 text-xs md:text-sm text-gray-500 text-center md:text-left">
               <p>
-                Showing {filteredDevices.length} of {devices.length} devices
+                Showing {filteredDevices.length} of {totalCount} devices
+                {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
                 <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
               </p>
             </div>
