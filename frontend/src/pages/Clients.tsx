@@ -145,11 +145,19 @@ export function Clients() {
     if (device.ip_address && device.ip_address.includes('.')) body.ip_address = device.ip_address;
     // Optimistic UI
     if (blocked) {
-      setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+      // Unblocking: remove from blocked lists
+      if (device.ip_address) {
+        setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+      }
       setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
-    } else if (body.ip_address) {
-      setBlockedV4(prev => Array.from(new Set([...prev, body.ip_address])));
+    } else {
+      // Blocking: add to blocked lists
+      // Always add MAC address (devices can be blocked by MAC alone)
       setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
+      // Only add IP if it exists
+      if (body.ip_address) {
+        setBlockedV4(prev => Array.from(new Set([...prev, body.ip_address])));
+      }
     }
     try {
       const response = await fetch(url, {
@@ -162,6 +170,9 @@ export function Clients() {
       });
       
       if (response.ok) {
+        // Small delay to ensure backend has processed the change
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         // Refetch blocked list immediately after successful operation
         // This ensures the UI state matches the actual backend state
         const blockedResponse = await fetch('/api/devices/blocked', {
@@ -171,24 +182,39 @@ export function Clients() {
           const blockedData = await blockedResponse.json();
           setBlockedV4(blockedData.ipv4 || []);
           setBlockedMacs((blockedData.macs || []).map((m: string) => m.toLowerCase()));
+        } else {
+          // If refetch fails, keep optimistic update (better than reverting)
+          console.warn('Failed to refetch blocked list after block/unblock operation');
         }
       } else {
         // API call failed, revert optimistic update
         if (blocked) {
-          setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+          // Was unblocking, revert by re-adding to blocked lists
+          if (device.ip_address) {
+            setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+          }
           setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
         } else {
-          setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+          // Was blocking, revert by removing from blocked lists
+          if (device.ip_address) {
+            setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+          }
           setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
         }
       }
     } catch (e) {
       // Network error, revert optimistic update
       if (blocked) {
-        setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+        // Was unblocking, revert by re-adding to blocked lists
+        if (device.ip_address) {
+          setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
+        }
         setBlockedMacs(prev => Array.from(new Set([...prev, device.mac_address.toLowerCase()])));
       } else {
-        setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+        // Was blocking, revert by removing from blocked lists
+        if (device.ip_address) {
+          setBlockedV4(prev => prev.filter(ip => ip !== device.ip_address));
+        }
         setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
       }
     }
