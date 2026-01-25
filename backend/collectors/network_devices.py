@@ -161,14 +161,34 @@ def _get_mac_lookup():
     global _mac_lookup
     if _mac_lookup is None:
         try:
-            from mac_vendor_lookup import MacLookup
+            # Explicitly import only the synchronous MacLookup class
+            import mac_vendor_lookup
+            MacLookup = mac_vendor_lookup.MacLookup
+            
+            # Verify we got the right class (not AsyncMacLookup)
+            if hasattr(MacLookup, '__name__') and 'Async' in MacLookup.__name__:
+                logger.error("Accidentally imported AsyncMacLookup instead of MacLookup")
+                _mac_lookup = False
+                return None
+            
             # Initialize MacLookup (loads IEEE OUI database)
             # The database is automatically downloaded/cached on first use
             _mac_lookup = MacLookup()
-        except ImportError:
+            logger.info(f"Initialized MacLookup: {type(_mac_lookup).__name__}")
+            
+            # Update the database on first initialization
+            try:
+                _mac_lookup.update_vendors()
+                logger.info("MAC vendor database updated successfully")
+            except Exception as e:
+                logger.debug(f"Could not update MAC vendor database: {e}")
+        except ImportError as e:
             # mac-vendor-lookup not available
-            logger.warning("mac-vendor-lookup not available, using fallback")
+            logger.warning(f"mac-vendor-lookup not available: {e}, using fallback")
             _mac_lookup = False  # Use False to indicate unavailable
+        except Exception as e:
+            logger.warning(f"Failed to initialize mac-vendor-lookup: {e}")
+            _mac_lookup = False
     return _mac_lookup if _mac_lookup is not False else None
 
 
@@ -238,10 +258,15 @@ def lookup_mac_vendor(mac_address: str) -> Optional[str]:
     lookup = _get_mac_lookup()
     if lookup:
         try:
-            vendor = lookup.lookup(normalized_mac)
-            if vendor:
-                _vendor_cache[normalized_mac] = vendor
-                return vendor
+            # Call lookup() - this should be synchronous with MacLookup (not AsyncMacLookup)
+            result = lookup.lookup(normalized_mac)
+            # Check if we accidentally got a coroutine (shouldn't happen with MacLookup)
+            if hasattr(result, '__await__'):
+                logger.error(f"Got coroutine from lookup() - this should not happen with sync MacLookup")
+                result = None
+            if result:
+                _vendor_cache[normalized_mac] = result
+                return result
         except Exception as e:
             logger.debug(f"mac-vendor-lookup failed for {normalized_mac}: {e}")
     
