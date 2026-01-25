@@ -395,8 +395,8 @@ export function Clients() {
           </div>
           
           <Card>
-            {/* Sticky section for tabs, filters on desktop - extends upward to cover scrolling content */}
-            <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-20 min-[1000px]:bg-white min-[1000px]:dark:bg-gray-800 min-[1000px]:-mx-5 min-[1000px]:px-5 min-[1000px]:-mt-[100px] min-[1000px]:pt-[100px] min-[1000px]:pb-2">
+            {/* Sticky section for tabs and filters on desktop */}
+            <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-20 min-[1000px]:bg-white min-[1000px]:dark:bg-gray-800">
               {/* Network Tabs */}
               <div className="mb-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex space-x-1" role="tablist">
@@ -504,7 +504,7 @@ export function Clients() {
             {/* Desktop Table View */}
             <div className="hidden min-[1000px]:block overflow-x-auto">
               <Table>
-                <Table.Head className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-700">
+                <Table.Head>
                   <Table.HeadCell 
                     className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('ip')}
