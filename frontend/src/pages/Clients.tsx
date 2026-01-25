@@ -378,28 +378,27 @@ export function Clients() {
         />
         
         <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50 dark:bg-gray-900">
-          {/* Sticky header section for desktop */}
-          <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-10 min-[1000px]:bg-gray-50 min-[1000px]:dark:bg-gray-900 min-[1000px]:pb-4 min-[1000px]:-mx-6 min-[1000px]:px-6 min-[1000px]:-mt-6 min-[1000px]:pt-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
-              <div className="flex flex-col gap-1">
-                <h1 className="text-2xl md:text-3xl font-bold">Devices</h1>
-                <p className="text-xs md:text-sm text-gray-500">
-                  Showing {sortedDevices.length} of {totalCount} devices
-                  {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
-                  <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
-                </p>
-              </div>
-              <div className="flex gap-2 md:gap-4">
-                <Badge color="success" size="sm" className="md:text-base">{onlineCount} Online</Badge>
-                <Badge color="gray" size="sm" className="md:text-base">{offlineCount} Offline</Badge>
-                <Badge color="info" size="sm" className="md:text-base">{totalCount} Total</Badge>
-              </div>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
+            <div className="flex flex-col gap-1">
+              <h1 className="text-2xl md:text-3xl font-bold">Devices</h1>
+              <p className="text-xs md:text-sm text-gray-500">
+                Showing {sortedDevices.length} of {totalCount} devices
+                {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
+                <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
+              </p>
+            </div>
+            <div className="flex gap-2 md:gap-4">
+              <Badge color="success" size="sm" className="md:text-base">{onlineCount} Online</Badge>
+              <Badge color="gray" size="sm" className="md:text-base">{offlineCount} Offline</Badge>
+              <Badge color="info" size="sm" className="md:text-base">{totalCount} Total</Badge>
             </div>
           </div>
           
           <Card>
-            {/* Network Tabs */}
-            <div className="mb-4 border-b border-gray-200 dark:border-gray-700">
+            {/* Sticky section for tabs, filters, and table headers on desktop */}
+            <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-10 min-[1000px]:bg-white min-[1000px]:dark:bg-gray-800 min-[1000px]:-mx-5 min-[1000px]:px-5 min-[1000px]:-mt-5 min-[1000px]:pt-5">
+              {/* Network Tabs */}
+              <div className="mb-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex space-x-1" role="tablist">
                 <button
                   role="tab"
@@ -473,6 +472,8 @@ export function Clients() {
                 </Select>
               </div>
             </div>
+            </div>
+            {/* End sticky section */}
 
             {/* Legend for color indicators - only show below 1650px */}
             <div className="xl-custom:hidden mb-4 flex flex-wrap gap-4 text-xs text-gray-600 dark:text-gray-400">
@@ -503,7 +504,7 @@ export function Clients() {
             {/* Desktop Table View */}
             <div className="hidden min-[1000px]:block overflow-x-auto">
               <Table>
-                <Table.Head>
+                <Table.Head className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-700">
                   <Table.HeadCell 
                     className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('ip')}
