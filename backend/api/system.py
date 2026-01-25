@@ -400,6 +400,38 @@ _github_stats_cache_time: Optional[datetime] = None
 _GITHUB_STATS_CACHE_TTL = timedelta(hours=6)
 
 
+async def _fetch_from_shields_io(client: httpx.AsyncClient, repo_owner: str, repo_name: str) -> Optional[GitHubStats]:
+    """Fallback: fetch stars and forks from shields.io JSON endpoints
+    
+    Shields.io has its own caching and is less likely to be rate limited.
+    """
+    try:
+        # Fetch stars
+        stars_response = await client.get(
+            f"https://img.shields.io/github/stars/{repo_owner}/{repo_name}",
+            params={"style": "json"},
+            headers={"Accept": "application/json"}
+        )
+        stars_response.raise_for_status()
+        stars_data = stars_response.json()
+        stars = int(stars_data.get("value", "0").replace(",", "").replace("k", "000"))
+        
+        # Fetch forks
+        forks_response = await client.get(
+            f"https://img.shields.io/github/forks/{repo_owner}/{repo_name}",
+            params={"style": "json"},
+            headers={"Accept": "application/json"}
+        )
+        forks_response.raise_for_status()
+        forks_data = forks_response.json()
+        forks = int(forks_data.get("value", "0").replace(",", "").replace("k", "000"))
+        
+        return GitHubStats(stars=stars, forks=forks)
+    except Exception as e:
+        print(f"Warning: shields.io fallback also failed: {e}")
+        return None
+
+
 @router.get("/github-stats", response_model=GitHubStats)
 async def get_github_stats(
     _: str = Depends(get_current_user)
@@ -407,6 +439,7 @@ async def get_github_stats(
     """Get GitHub repository statistics (stars and forks)
     
     Results are cached for 6 hours to avoid GitHub API rate limiting.
+    Falls back to shields.io if GitHub API fails.
     
     Returns:
         GitHubStats: Repository stars and forks count
@@ -423,8 +456,9 @@ async def get_github_stats(
     repo_owner = "NixRTR"
     repo_name = "nixos-router"
     
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Try GitHub API first
+        try:
             response = await client.get(
                 f"https://api.github.com/repos/{repo_owner}/{repo_name}",
                 headers={"Accept": "application/vnd.github.v3+json"}
@@ -442,17 +476,23 @@ async def get_github_stats(
             _github_stats_cache_time = now
             
             return stats
-    except httpx.HTTPError as e:
-        # If GitHub API fails, return cached data if available, otherwise zeros
-        print(f"Warning: Failed to fetch GitHub stats: {e}")
-        if _github_stats_cache is not None:
-            return _github_stats_cache
-        return GitHubStats(stars=0, forks=0)
-    except Exception as e:
-        print(f"Warning: Error fetching GitHub stats: {e}")
-        if _github_stats_cache is not None:
-            return _github_stats_cache
-        return GitHubStats(stars=0, forks=0)
+        except Exception as e:
+            print(f"Warning: GitHub API failed: {e}, trying shields.io fallback...")
+        
+        # Fallback to shields.io
+        stats = await _fetch_from_shields_io(client, repo_owner, repo_name)
+        if stats:
+            # Update cache with fallback data
+            _github_stats_cache = stats
+            _github_stats_cache_time = now
+            return stats
+    
+    # If all sources fail, return cached data if available, otherwise zeros
+    if _github_stats_cache is not None:
+        print("Warning: All sources failed, returning stale cached data")
+        return _github_stats_cache
+    
+    return GitHubStats(stars=0, forks=0)
 
 
 @router.get("/documentation")
