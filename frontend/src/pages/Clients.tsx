@@ -36,6 +36,8 @@ export function Clients() {
   const [blockedV4, setBlockedV4] = useState<string[]>([]);
   const [blockedMacs, setBlockedMacs] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sortColumn, setSortColumn] = useState<string>('ip'); // Default to IP
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   const { connectionStatus } = useMetrics(token);
   
@@ -254,6 +256,80 @@ export function Clients() {
   const offlineCount = tabDevices.filter(d => !d.is_online).length;
   const totalCount = tabDevices.length;
 
+  // Helper function to convert IP to sortable string (pad octets for proper numeric sorting)
+  const getSortableIP = (ip: string): string => {
+    return ip.split('.').map(octet => octet.padStart(3, '0')).join('.');
+  };
+
+  // Handle column sorting - click toggles between asc/desc
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column - always start with ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get sort indicator for a column
+  const getSortIndicator = (column: string) => {
+    if (sortColumn !== column) return null;
+    return sortDirection === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  // Get display name for device (nickname or hostname)
+  const getDisplayName = (device: NetworkDevice): string => {
+    return device.nickname || device.hostname || 'Unknown';
+  };
+
+  // Sort devices based on selected column
+  const sortedDevices = [...filteredDevices].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortColumn) {
+      case 'ip':
+        const ipA = getSortableIP(a.ip_address);
+        const ipB = getSortableIP(b.ip_address);
+        comparison = ipA.localeCompare(ipB);
+        break;
+      case 'device':
+        comparison = getDisplayName(a).toLowerCase().localeCompare(getDisplayName(b).toLowerCase());
+        break;
+      case 'mac':
+        comparison = a.mac_address.localeCompare(b.mac_address);
+        break;
+      case 'vendor':
+        // Nulls last
+        const vendorA = a.vendor || '\uffff';
+        const vendorB = b.vendor || '\uffff';
+        comparison = vendorA.toLowerCase().localeCompare(vendorB.toLowerCase());
+        break;
+      case 'network':
+        comparison = a.network.localeCompare(b.network);
+        break;
+      case 'status':
+        // Online first when ascending
+        comparison = (b.is_online ? 1 : 0) - (a.is_online ? 1 : 0);
+        break;
+      case 'type':
+        // DHCP first when ascending
+        comparison = (b.is_dhcp ? 1 : 0) - (a.is_dhcp ? 1 : 0);
+        break;
+      case 'lastSeen':
+        const dateA = new Date(a.last_seen).getTime();
+        const dateB = new Date(b.last_seen).getTime();
+        comparison = dateA - dateB;
+        break;
+      default:
+        // Default: sort by IP
+        comparison = getSortableIP(a.ip_address).localeCompare(getSortableIP(b.ip_address));
+    }
+
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
   // Helper function to format last seen date
   const formatLastSeen = (dateString: string): string => {
     const date = new Date(dateString);
@@ -302,12 +378,22 @@ export function Clients() {
         />
         
         <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50 dark:bg-gray-900">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold">Devices</h1>
-            <div className="flex gap-2 md:gap-4">
-              <Badge color="success" size="sm" className="md:text-base">{onlineCount} Online</Badge>
-              <Badge color="gray" size="sm" className="md:text-base">{offlineCount} Offline</Badge>
-              <Badge color="info" size="sm" className="md:text-base">{totalCount} Total</Badge>
+          {/* Sticky header section for desktop */}
+          <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-10 min-[1000px]:bg-gray-50 min-[1000px]:dark:bg-gray-900 min-[1000px]:pb-4 min-[1000px]:-mx-6 min-[1000px]:px-6 min-[1000px]:-mt-6 min-[1000px]:pt-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-3">
+              <div className="flex flex-col gap-1">
+                <h1 className="text-2xl md:text-3xl font-bold">Devices</h1>
+                <p className="text-xs md:text-sm text-gray-500">
+                  Showing {sortedDevices.length} of {totalCount} devices
+                  {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
+                  <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
+                </p>
+              </div>
+              <div className="flex gap-2 md:gap-4">
+                <Badge color="success" size="sm" className="md:text-base">{onlineCount} Online</Badge>
+                <Badge color="gray" size="sm" className="md:text-base">{offlineCount} Offline</Badge>
+                <Badge color="info" size="sm" className="md:text-base">{totalCount} Total</Badge>
+              </div>
             </div>
           </div>
           
@@ -418,32 +504,60 @@ export function Clients() {
             <div className="hidden min-[1000px]:block overflow-x-auto">
               <Table>
                 <Table.Head>
-                  <Table.HeadCell className="w-12">Status</Table.HeadCell>
-                  <Table.HeadCell>Device</Table.HeadCell>
-                  <Table.HeadCell>IP Address</Table.HeadCell>
-                  <Table.HeadCell className="hidden lg:table-cell">MAC Address</Table.HeadCell>
-                  <Table.HeadCell className="hidden xl:table-cell">Vendor</Table.HeadCell>
-                  <Table.HeadCell className="w-12">Network</Table.HeadCell>
-                  <Table.HeadCell className="w-12">Type</Table.HeadCell>
-                  <Table.HeadCell className="w-24">Last Seen</Table.HeadCell>
+                  <Table.HeadCell 
+                    className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('ip')}
+                  >
+                    IP Address{getSortIndicator('ip')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('device')}
+                  >
+                    Device{getSortIndicator('device')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="hidden lg:table-cell cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('mac')}
+                  >
+                    MAC Address{getSortIndicator('mac')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="hidden xl:table-cell cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('vendor')}
+                  >
+                    Vendor{getSortIndicator('vendor')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="w-12 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('network')}
+                  >
+                    Network{getSortIndicator('network')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="w-12 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status{getSortIndicator('status')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="w-12 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('type')}
+                  >
+                    Type{getSortIndicator('type')}
+                  </Table.HeadCell>
+                  <Table.HeadCell 
+                    className="w-24 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('lastSeen')}
+                  >
+                    Last Seen{getSortIndicator('lastSeen')}
+                  </Table.HeadCell>
                   <Table.HeadCell>Actions</Table.HeadCell>
                 </Table.Head>
                 <Table.Body className="divide-y">
-                  {filteredDevices.map((device) => (
+                  {sortedDevices.map((device) => (
                     <Table.Row key={device.mac_address} className={!device.is_online ? 'opacity-50' : ''}>
-                      <Table.Cell>
-                        {/* Show text above 1650px, circle below */}
-                        <div className="hidden xl-custom:block">
-                        <Badge color={device.is_online ? 'success' : 'gray'} size="sm">
-                            {device.is_online ? 'ONLINE' : 'OFFLINE'}
-                        </Badge>
-                        </div>
-                        <div className="xl-custom:hidden">
-                          <Tooltip content={device.is_online ? 'Online' : 'Offline'} placement="top">
-                            <div className={`w-3 h-3 rounded-full ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                          </Tooltip>
-                        </div>
-                      </Table.Cell>
+                      <Table.Cell className="font-mono text-sm">{device.ip_address}</Table.Cell>
                       <Table.Cell className="font-medium max-w-[200px]">
                         <div className="flex items-center gap-2">
                           <button
@@ -463,7 +577,6 @@ export function Clients() {
                           <TruncatedText text={device.nickname || device.hostname || 'Unknown'} maxLength={20} />
                         </div>
                       </Table.Cell>
-                      <Table.Cell className="font-mono text-sm">{device.ip_address}</Table.Cell>
                       <Table.Cell className="font-mono text-sm hidden lg:table-cell">
                         {device.mac_address}
                       </Table.Cell>
@@ -480,6 +593,19 @@ export function Clients() {
                         <div className="xl-custom:hidden">
                           <Tooltip content={device.network.toUpperCase()} placement="top">
                             <div className={`w-3 h-3 rounded-full ${device.network === 'homelab' ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
+                          </Tooltip>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        {/* Show text above 1650px, circle below */}
+                        <div className="hidden xl-custom:block">
+                        <Badge color={device.is_online ? 'success' : 'gray'} size="sm">
+                            {device.is_online ? 'ONLINE' : 'OFFLINE'}
+                        </Badge>
+                        </div>
+                        <div className="xl-custom:hidden">
+                          <Tooltip content={device.is_online ? 'Online' : 'Offline'} placement="top">
+                            <div className={`w-3 h-3 rounded-full ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                           </Tooltip>
                         </div>
                       </Table.Cell>
@@ -530,7 +656,7 @@ export function Clients() {
 
             {/* Mobile Card View */}
             <div className="min-[1000px]:hidden space-y-3">
-              {filteredDevices.map((device) => (
+              {sortedDevices.map((device) => (
                 <div
                   key={device.mac_address}
                   className={`p-4 rounded-lg border ${
@@ -622,19 +748,12 @@ export function Clients() {
               ))}
             </div>
 
-            {filteredDevices.length === 0 && (
+            {sortedDevices.length === 0 && (
               <div className="text-center py-8 text-gray-500">
                 No devices found matching your filters
               </div>
             )}
             
-            <div className="mt-4 text-xs md:text-sm text-gray-500 text-center md:text-left">
-              <p>
-                Showing {filteredDevices.length} of {totalCount} devices
-                {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
-                <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
-              </p>
-            </div>
           </Card>
         </main>
       </div>
