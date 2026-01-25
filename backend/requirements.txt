@@ -25,7 +25,7 @@ python-pam==2.0.2
 apprise==1.9.5
 
 # MAC address vendor lookup
-mac-vendor-lookup==0.1.12
+netaddr>=0.8.0
 
 # Templates
 jinja2==3.1.3

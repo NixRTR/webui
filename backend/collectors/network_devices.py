@@ -154,42 +154,20 @@ def determine_network(ip_address: str, interface: str) -> str:
 
 # Cache for vendor lookups (key: normalized MAC, value: vendor name or None)
 _vendor_cache: Dict[str, Optional[str]] = {}
-_mac_lookup = None
+_netaddr_available = None
 
-def _get_mac_lookup():
-    """Get or create the MacLookup instance (cached)"""
-    global _mac_lookup
-    if _mac_lookup is None:
+def _check_netaddr():
+    """Check if netaddr library is available"""
+    global _netaddr_available
+    if _netaddr_available is None:
         try:
-            # Explicitly import only the synchronous MacLookup class
-            import mac_vendor_lookup
-            MacLookup = mac_vendor_lookup.MacLookup
-            
-            # Verify we got the right class (not AsyncMacLookup)
-            if hasattr(MacLookup, '__name__') and 'Async' in MacLookup.__name__:
-                logger.error("Accidentally imported AsyncMacLookup instead of MacLookup")
-                _mac_lookup = False
-                return None
-            
-            # Initialize MacLookup (loads IEEE OUI database)
-            # The database is automatically downloaded/cached on first use
-            _mac_lookup = MacLookup()
-            logger.info(f"Initialized MacLookup: {type(_mac_lookup).__name__}")
-            
-            # Update the database on first initialization
-            try:
-                _mac_lookup.update_vendors()
-                logger.info("MAC vendor database updated successfully")
-            except Exception as e:
-                logger.debug(f"Could not update MAC vendor database: {e}")
-        except ImportError as e:
-            # mac-vendor-lookup not available
-            logger.warning(f"mac-vendor-lookup not available: {e}, using fallback")
-            _mac_lookup = False  # Use False to indicate unavailable
-        except Exception as e:
-            logger.warning(f"Failed to initialize mac-vendor-lookup: {e}")
-            _mac_lookup = False
-    return _mac_lookup if _mac_lookup is not False else None
+            from netaddr import EUI
+            _netaddr_available = True
+            logger.info("netaddr library available for MAC vendor lookup")
+        except ImportError:
+            _netaddr_available = False
+            logger.warning("netaddr not available, using fallback for MAC vendor lookup")
+    return _netaddr_available
 
 
 def _normalize_mac(mac_address: str) -> str:
@@ -232,7 +210,7 @@ def _normalize_mac(mac_address: str) -> str:
 def lookup_mac_vendor(mac_address: str) -> Optional[str]:
     """Look up vendor from MAC address OUI with caching
     
-    Uses the mac-vendor-lookup library which provides a comprehensive OUI database
+    Uses the netaddr library which provides a comprehensive OUI database
     based on IEEE's manufacturer database. Falls back to a small hardcoded
     dictionary if the library is not available.
     
@@ -254,21 +232,21 @@ def lookup_mac_vendor(mac_address: str) -> Optional[str]:
     if normalized_mac in _vendor_cache:
         return _vendor_cache[normalized_mac]
     
-    # Try using mac-vendor-lookup library
-    lookup = _get_mac_lookup()
-    if lookup:
+    # Try using netaddr library for OUI lookup
+    if _check_netaddr():
         try:
-            # Call lookup() - this should be synchronous with MacLookup (not AsyncMacLookup)
-            result = lookup.lookup(normalized_mac)
-            # Check if we accidentally got a coroutine (shouldn't happen with MacLookup)
-            if hasattr(result, '__await__'):
-                logger.error(f"Got coroutine from lookup() - this should not happen with sync MacLookup")
-                result = None
-            if result:
-                _vendor_cache[normalized_mac] = result
-                return result
+            from netaddr import EUI
+            # Convert to format netaddr expects (accepts various formats)
+            mac = EUI(normalized_mac)
+            # Get the OUI (Organizationally Unique Identifier) registration
+            oui = mac.oui
+            if oui and oui.registration():
+                vendor = oui.registration().org
+                if vendor:
+                    _vendor_cache[normalized_mac] = vendor
+                    return vendor
         except Exception as e:
-            logger.debug(f"mac-vendor-lookup failed for {normalized_mac}: {e}")
+            logger.debug(f"netaddr OUI lookup failed for {normalized_mac}: {e}")
     
     # Fallback: Minimal hardcoded dictionary (keep for compatibility)
     oui = ':'.join(normalized_mac.split(':')[:3])
