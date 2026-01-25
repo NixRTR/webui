@@ -395,8 +395,8 @@ export function Clients() {
           </div>
           
           <Card>
-            {/* Sticky section for tabs, filters, and table headers on desktop */}
-            <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-10 min-[1000px]:bg-white min-[1000px]:dark:bg-gray-800 min-[1000px]:-mx-5 min-[1000px]:px-5 min-[1000px]:-mt-5 min-[1000px]:pt-5">
+            {/* Sticky section for tabs, filters on desktop - extends upward to cover scrolling content */}
+            <div className="min-[1000px]:sticky min-[1000px]:top-0 min-[1000px]:z-20 min-[1000px]:bg-white min-[1000px]:dark:bg-gray-800 min-[1000px]:-mx-5 min-[1000px]:px-5 min-[1000px]:-mt-[100px] min-[1000px]:pt-[100px] min-[1000px]:pb-2">
               {/* Network Tabs */}
               <div className="mb-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex space-x-1" role="tablist">
