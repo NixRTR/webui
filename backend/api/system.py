@@ -394,15 +394,32 @@ class GitHubStats(BaseModel):
     forks: int
 
 
+# Cache for GitHub stats (6-hour TTL to avoid rate limiting)
+_github_stats_cache: Optional[GitHubStats] = None
+_github_stats_cache_time: Optional[datetime] = None
+_GITHUB_STATS_CACHE_TTL = timedelta(hours=6)
+
+
 @router.get("/github-stats", response_model=GitHubStats)
 async def get_github_stats(
     _: str = Depends(get_current_user)
 ) -> GitHubStats:
     """Get GitHub repository statistics (stars and forks)
     
+    Results are cached for 6 hours to avoid GitHub API rate limiting.
+    
     Returns:
         GitHubStats: Repository stars and forks count
     """
+    global _github_stats_cache, _github_stats_cache_time
+    
+    # Check if we have valid cached data
+    now = datetime.now(timezone.utc)
+    if _github_stats_cache is not None and _github_stats_cache_time is not None:
+        cache_age = now - _github_stats_cache_time
+        if cache_age < _GITHUB_STATS_CACHE_TTL:
+            return _github_stats_cache
+    
     repo_owner = "NixRTR"
     repo_name = "nixos-router"
     
@@ -415,16 +432,26 @@ async def get_github_stats(
             response.raise_for_status()
             data = response.json()
             
-            return GitHubStats(
+            stats = GitHubStats(
                 stars=data.get("stargazers_count", 0),
                 forks=data.get("forks_count", 0)
             )
+            
+            # Update cache
+            _github_stats_cache = stats
+            _github_stats_cache_time = now
+            
+            return stats
     except httpx.HTTPError as e:
-        # If GitHub API fails, return zeros (don't break the UI)
+        # If GitHub API fails, return cached data if available, otherwise zeros
         print(f"Warning: Failed to fetch GitHub stats: {e}")
+        if _github_stats_cache is not None:
+            return _github_stats_cache
         return GitHubStats(stars=0, forks=0)
     except Exception as e:
         print(f"Warning: Error fetching GitHub stats: {e}")
+        if _github_stats_cache is not None:
+            return _github_stats_cache
         return GitHubStats(stars=0, forks=0)
 
 
