@@ -3,7 +3,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Badge, Button, Modal, Select, Label, TextInput, Tooltip as FlowbiteTooltip } from 'flowbite-react';
+import { Card, Table, Badge, Button, Modal, Select, Label, TextInput, Tooltip as FlowbiteTooltip, Spinner } from 'flowbite-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { CustomTooltip } from '../components/charts/CustomTooltip';
 import { HiSearch } from 'react-icons/hi';
@@ -70,6 +70,7 @@ export function DeviceUsage() {
   const [filterStatus, setFilterStatus] = useState('all'); // all, online, offline
   const [filterType, setFilterType] = useState('all'); // all, dhcp, static
   const [filterNetwork, setFilterNetwork] = useState('all'); // all, homelab, lan
+  const [isTableLoading, setIsTableLoading] = useState(false);
   
   // Determine if a column is numerical (should default to descending)
   const isNumericalColumn = (column: string): boolean => {
@@ -167,7 +168,7 @@ export function DeviceUsage() {
 
   // Fetch and calculate time period averages for the selected table time range
   useEffect(() => {
-    const fetchAverages = async () => {
+    const fetchAverages = async (showLoading: boolean = false) => {
       if (!token) return;
       
       const range = tableTimeRange === 'custom' ? tableCustomRange : tableTimeRange;
@@ -175,6 +176,8 @@ export function DeviceUsage() {
         setBandwidthAverages({});
         return;
       }
+      
+      if (showLoading) setIsTableLoading(true);
       
       try {
         // Fetch bulk data for the selected time period
@@ -226,11 +229,13 @@ export function DeviceUsage() {
         setBandwidthAverages(averages);
       } catch (error) {
         console.error('Failed to fetch bandwidth averages:', error);
+      } finally {
+        if (showLoading) setIsTableLoading(false);
       }
     };
 
-    fetchAverages();
-    const interval = setInterval(fetchAverages, 60000); // Update every minute
+    fetchAverages(true); // Show loading on initial/time range change fetch
+    const interval = setInterval(() => fetchAverages(false), 60000); // Don't show loading on auto-refresh
     return () => clearInterval(interval);
   }, [token, tableTimeRange, tableCustomRange]);
 
@@ -553,30 +558,33 @@ export function DeviceUsage() {
             <div className="mb-4 flex flex-wrap gap-4 items-end">
               <div className="min-w-[150px]">
                 <Label htmlFor="table-range" value="Time Period" />
-                <Select 
-                  id="table-range" 
-                  value={tableTimeRange} 
-                  onChange={(e) => {
-                    setTableTimeRange(e.target.value);
-                    if (e.target.value !== 'custom') {
-                      setTableCustomRange('');
-                    }
-                  }}
-                >
-                  <option value="1m">1 minute</option>
-                  <option value="5m">5 minutes</option>
-                  <option value="10m">10 minutes</option>
-                  <option value="30m">30 minutes</option>
-                  <option value="1h">1 hour</option>
-                  <option value="3h">3 hours</option>
-                  <option value="6h">6 hours</option>
-                  <option value="12h">12 hours</option>
-                  <option value="1d">1 day</option>
-                  <option value="1w">1 week</option>
-                  <option value="1M">1 month</option>
-                  <option value="1y">1 year</option>
-                  <option value="custom">Custom</option>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select 
+                    id="table-range" 
+                    value={tableTimeRange} 
+                    onChange={(e) => {
+                      setTableTimeRange(e.target.value);
+                      if (e.target.value !== 'custom') {
+                        setTableCustomRange('');
+                      }
+                    }}
+                  >
+                    <option value="1m">1 minute</option>
+                    <option value="5m">5 minutes</option>
+                    <option value="10m">10 minutes</option>
+                    <option value="30m">30 minutes</option>
+                    <option value="1h">1 hour</option>
+                    <option value="3h">3 hours</option>
+                    <option value="6h">6 hours</option>
+                    <option value="12h">12 hours</option>
+                    <option value="1d">1 day</option>
+                    <option value="1w">1 week</option>
+                    <option value="1M">1 month</option>
+                    <option value="1y">1 year</option>
+                    <option value="custom">Custom</option>
+                  </Select>
+                  {isTableLoading && <Spinner size="sm" />}
+                </div>
               </div>
               
               {tableTimeRange === 'custom' && (
