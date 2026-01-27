@@ -154,6 +154,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
               <FlowbiteSidebar.Item
                 as={Link}
+                to="/notifications"
+                icon={HiBell}
+                active={location.pathname === '/notifications'}
+                onClick={handleItemClick}
+              >
+                Notifications
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
+                as={Link}
                 to="/system"
                 icon={HiClock}
                 active={location.pathname === '/system'}
