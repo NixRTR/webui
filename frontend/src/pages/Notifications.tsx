@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -15,7 +15,7 @@ import {
   Textarea,
   ToggleSwitch,
 } from 'flowbite-react';
-import { HiCheckCircle, HiXCircle, HiInformationCircle, HiPencil, HiTrash } from 'react-icons/hi';
+import { HiCheckCircle, HiXCircle, HiInformationCircle } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
@@ -27,8 +27,6 @@ import type {
   NotificationRuleCreate,
   ComparisonOperator,
   AppriseServiceInfo,
-  AppriseService,
-  AppriseServiceUpdate,
 } from '../types/notifications';
 import type { AppriseConfig } from '../types/apprise-config';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
@@ -72,6 +70,58 @@ const emptyForm: NotificationRuleFormState = {
   message_template: DEFAULT_TEMPLATE,
 };
 
+// Parameter categories for wizard
+interface ParameterCategory {
+  id: string;
+  label: string;
+  paramType?: string;
+  subOptions?: string[];
+  requiresSubSelection?: boolean;
+}
+
+const PARAMETER_CATEGORIES: ParameterCategory[] = [
+  { id: 'cpu', label: 'CPU Usage', paramType: 'cpu_percent' },
+  { id: 'memory', label: 'Memory Usage', paramType: 'memory_percent' },
+  { id: 'load', label: 'Load Average', subOptions: ['1m', '5m', '15m'] },
+  { id: 'bandwidth', label: 'Bandwidth Usage', requiresSubSelection: true },
+  { id: 'temperature', label: 'Temperature', requiresSubSelection: true },
+  { id: 'service', label: 'Service Status', requiresSubSelection: true },
+  { id: 'speedtest', label: 'Speedtest', subOptions: ['download', 'upload', 'ping'] },
+];
+
+// Map wizard selections to parameter types
+const getParameterType = (category: string, subSelection: Record<string, string>): string => {
+  switch (category) {
+    case 'cpu':
+      return 'cpu_percent';
+    case 'memory':
+      return 'memory_percent';
+    case 'load':
+      const period = subSelection.loadPeriod;
+      if (period === '1m') return 'load_avg_1m';
+      if (period === '5m') return 'load_avg_5m';
+      if (period === '15m') return 'load_avg_15m';
+      return 'load_avg_1m';
+    case 'bandwidth':
+      const direction = subSelection.bandwidthDirection;
+      if (direction === 'download') return 'interface_rx_bytes';
+      if (direction === 'upload') return 'interface_tx_bytes';
+      return 'interface_rx_bytes';
+    case 'temperature':
+      return 'temperature_c';
+    case 'service':
+      return 'service_status';
+    case 'speedtest':
+      const speedtestType = subSelection.speedtestType;
+      if (speedtestType === 'download') return 'speedtest_download';
+      if (speedtestType === 'upload') return 'speedtest_upload';
+      if (speedtestType === 'ping') return 'speedtest_ping';
+      return 'speedtest_download';
+    default:
+      return '';
+  }
+};
+
 export function Notifications() {
   const token = localStorage.getItem('access_token');
   const username = localStorage.getItem('username') || 'Unknown';
@@ -95,20 +145,17 @@ export function Notifications() {
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
   
+  // Wizard state
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardParameterCategory, setWizardParameterCategory] = useState<string | null>(null);
+  const [wizardSubSelection, setWizardSubSelection] = useState<Record<string, string>>({});
+  const [testNotificationResult, setTestNotificationResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testingNotification, setTestingNotification] = useState(false);
+  
   // Apprise service management state
   const [appriseServices, setAppriseServices] = useState<AppriseServiceInfo[]>([]);
   const [appriseEnabled, setAppriseEnabled] = useState(false);
   const [urlGeneratorModalOpen, setUrlGeneratorModalOpen] = useState(false);
-  
-  // Apprise edit modal state
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingService, setEditingService] = useState<AppriseService | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editUrl, setEditUrl] = useState('');
-  const [editEnabled, setEditEnabled] = useState(true);
-  const [savingService, setSavingService] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   
   // Apprise notification form state
   const [notificationBody, setNotificationBody] = useState('');
@@ -182,16 +229,106 @@ export function Notifications() {
     }
   };
 
-  const selectedParameter = useMemo(
-    () => parameters.find((param) => param.type === formState.parameter_type),
-    [parameters, formState.parameter_type]
-  );
+
+  // Wizard helper functions
+  const getTotalSteps = (): number => {
+    let steps = 5; // Base: category, thresholds, timing, template, test
+    if (!wizardParameterCategory) return steps;
+    
+    if (wizardParameterCategory === 'load' || wizardParameterCategory === 'speedtest') {
+      steps += 1; // Add sub-selection step
+    }
+    if (wizardParameterCategory === 'bandwidth') {
+      steps += 2; // Interface + direction
+    }
+    if (wizardParameterCategory === 'temperature') {
+      steps += 1; // Sensor selection
+    }
+    if (wizardParameterCategory === 'service') {
+      steps += 2; // Service + state type
+    }
+    return steps;
+  };
+
+  const validateStep = (step: number): boolean => {
+    // Step 0: Parameter category selection
+    if (step === 0) {
+      return wizardParameterCategory !== null;
+    }
+    
+    if (!wizardParameterCategory) return false;
+    
+    // Calculate step offsets based on category
+    let subSelectionSteps = 0;
+    if (wizardParameterCategory === 'load' || wizardParameterCategory === 'speedtest' || 
+        wizardParameterCategory === 'temperature') {
+      subSelectionSteps = 1;
+    } else if (wizardParameterCategory === 'bandwidth' || wizardParameterCategory === 'service') {
+      subSelectionSteps = 2;
+    }
+    
+    // Step 1: First sub-selection
+    if (step === 1 && subSelectionSteps >= 1) {
+      if (wizardParameterCategory === 'load') {
+        return wizardSubSelection.loadPeriod !== undefined;
+      }
+      if (wizardParameterCategory === 'speedtest') {
+        return wizardSubSelection.speedtestType !== undefined;
+      }
+      if (wizardParameterCategory === 'bandwidth') {
+        return wizardSubSelection.bandwidthInterface !== undefined && wizardSubSelection.bandwidthInterface !== '';
+      }
+      if (wizardParameterCategory === 'temperature') {
+        return wizardSubSelection.temperatureSensor !== undefined && wizardSubSelection.temperatureSensor !== '';
+      }
+      if (wizardParameterCategory === 'service') {
+        return wizardSubSelection.serviceName !== undefined && wizardSubSelection.serviceName !== '';
+      }
+    }
+    
+    // Step 2: Second sub-selection (bandwidth/service only)
+    if (step === 2 && subSelectionSteps === 2) {
+      if (wizardParameterCategory === 'bandwidth') {
+        return wizardSubSelection.bandwidthDirection !== undefined;
+      }
+      if (wizardParameterCategory === 'service') {
+        return wizardSubSelection.serviceStateType !== undefined;
+      }
+    }
+    
+    // Thresholds step
+    const thresholdsStep = subSelectionSteps + 1;
+    if (step === thresholdsStep) {
+      return formState.threshold_info !== '' || formState.threshold_warning !== '' || formState.threshold_failure !== '';
+    }
+    
+    // Timing and Services step
+    const timingStep = thresholdsStep + 1;
+    if (step === timingStep) {
+      return formState.apprise_service_indices.length > 0 && 
+             formState.duration_seconds > 0 && 
+             formState.cooldown_seconds >= 0;
+    }
+    
+    // Template and Name step
+    const templateStep = timingStep + 1;
+    if (step === templateStep) {
+      return formState.name.trim() !== '' && formState.message_template.trim() !== '';
+    }
+    
+    // Final step: Test (always valid, optional)
+    return true;
+  };
 
   const openCreateModal = () => {
     setFormState(emptyForm);
     setFormError(null);
     setFormSuccess(null);
     setTestResult(null);
+    setWizardStep(0);
+    setWizardParameterCategory(null);
+    setWizardSubSelection({});
+    setTestNotificationResult(null);
     setFormOpen(true);
   };
 
@@ -200,7 +337,54 @@ export function Notifications() {
     navigate('/login');
   };
 
+  // Map parameter type back to wizard category and sub-selections
+  const mapParameterTypeToWizard = (paramType: string, config: Record<string, any>, comparisonOp?: string, thresholdFailure?: string | number | null): { category: string; subSelection: Record<string, string> } => {
+    const subSelection: Record<string, string> = {};
+    let category = '';
+    
+    if (paramType === 'cpu_percent') {
+      category = 'cpu';
+    } else if (paramType === 'memory_percent') {
+      category = 'memory';
+    } else if (paramType.startsWith('load_avg_')) {
+      category = 'load';
+      const period = paramType.replace('load_avg_', '');
+      subSelection.loadPeriod = period === '1m' ? '1m' : period === '5m' ? '5m' : '15m';
+    } else if (paramType === 'interface_rx_bytes' || paramType === 'interface_tx_bytes') {
+      category = 'bandwidth';
+      subSelection.bandwidthInterface = config.interface || '';
+      subSelection.bandwidthDirection = paramType === 'interface_rx_bytes' ? 'download' : 'upload';
+    } else if (paramType === 'temperature_c') {
+      category = 'temperature';
+      subSelection.temperatureSensor = config.sensor_name || '';
+    } else if (paramType === 'service_status') {
+      category = 'service';
+      subSelection.serviceName = config.service_name || '';
+      // Determine state type from thresholds and comparison
+      if (comparisonOp === 'gt' && thresholdFailure && Number(thresholdFailure) > 0) {
+        subSelection.serviceStateType = 'up';
+      } else if (comparisonOp === 'lt' && thresholdFailure && Number(thresholdFailure) < 1) {
+        subSelection.serviceStateType = 'down';
+      } else {
+        subSelection.serviceStateType = 'change';
+      }
+    } else if (paramType.startsWith('speedtest_')) {
+      category = 'speedtest';
+      const type = paramType.replace('speedtest_', '');
+      subSelection.speedtestType = type;
+    }
+    
+    return { category, subSelection };
+  };
+
   const openEditModal = (rule: NotificationRule) => {
+    const { category, subSelection } = mapParameterTypeToWizard(
+      rule.parameter_type, 
+      rule.parameter_config || {},
+      rule.comparison_operator,
+      rule.threshold_failure
+    );
+    
     setFormState({
       id: rule.id,
       name: rule.name,
@@ -224,6 +408,10 @@ export function Notifications() {
       apprise_service_indices: [...(rule.apprise_service_indices || [])],
       message_template: rule.message_template || DEFAULT_TEMPLATE,
     });
+    setWizardStep(0);
+    setWizardParameterCategory(category);
+    setWizardSubSelection(subSelection);
+    setTestNotificationResult(null);
     setFormError(null);
     setFormSuccess(null);
     setTestResult(null);
@@ -236,6 +424,74 @@ export function Notifications() {
     setFormError(null);
     setFormSuccess(null);
     setTestResult(null);
+    setWizardStep(0);
+    setWizardParameterCategory(null);
+    setWizardSubSelection({});
+    setTestNotificationResult(null);
+  };
+
+  const handleWizardNext = () => {
+    if (validateStep(wizardStep)) {
+      // Update formState.parameter_type when moving from category selection or completing sub-selections
+      if (wizardParameterCategory) {
+        // For categories without sub-selection (CPU, Memory), set immediately after category selection
+        if ((wizardStep === 0 && (wizardParameterCategory === 'cpu' || wizardParameterCategory === 'memory')) ||
+            // For categories with sub-selection, set after sub-selection is complete
+            (wizardStep >= 1 && (wizardParameterCategory === 'load' || wizardParameterCategory === 'speedtest' || 
+                                wizardParameterCategory === 'temperature' || 
+                                (wizardParameterCategory === 'bandwidth' && wizardStep >= 2) ||
+                                (wizardParameterCategory === 'service' && wizardStep >= 2)))) {
+          const paramType = getParameterType(wizardParameterCategory, wizardSubSelection);
+          if (paramType) {
+            setFormState(prev => ({ ...prev, parameter_type: paramType }));
+            
+            // Set parameter_config based on selections
+            const config: Record<string, string> = {};
+            if (wizardParameterCategory === 'bandwidth' && wizardSubSelection.bandwidthInterface) {
+              config.interface = wizardSubSelection.bandwidthInterface;
+            }
+            if (wizardParameterCategory === 'temperature' && wizardSubSelection.temperatureSensor) {
+              config.sensor_name = wizardSubSelection.temperatureSensor;
+            }
+            if (wizardParameterCategory === 'service' && wizardSubSelection.serviceName) {
+              config.service_name = wizardSubSelection.serviceName;
+              // Set thresholds based on state type
+              if (wizardSubSelection.serviceStateType === 'up') {
+                setFormState(prev => ({ 
+                  ...prev, 
+                  comparison_operator: 'gt',
+                  threshold_failure: '1',
+                  threshold_warning: '',
+                  threshold_info: ''
+                }));
+              } else if (wizardSubSelection.serviceStateType === 'down') {
+                setFormState(prev => ({ 
+                  ...prev, 
+                  comparison_operator: 'lt',
+                  threshold_failure: '0',
+                  threshold_warning: '',
+                  threshold_info: ''
+                }));
+              }
+            }
+            if (Object.keys(config).length > 0) {
+              setFormState(prev => ({ ...prev, parameter_config: config }));
+            }
+          }
+        }
+      }
+      
+      const totalSteps = getTotalSteps();
+      if (wizardStep < totalSteps - 1) {
+        setWizardStep(wizardStep + 1);
+      }
+    }
+  };
+
+  const handleWizardPrev = () => {
+    if (wizardStep > 0) {
+      setWizardStep(wizardStep - 1);
+    }
   };
 
   const handleInputChange = (field: keyof NotificationRuleFormState, value: string | number | boolean) => {
@@ -245,15 +501,6 @@ export function Notifications() {
     }));
   };
 
-  const handleConfigFieldChange = (name: string, value: string) => {
-    setFormState((prev) => ({
-      ...prev,
-      parameter_config: {
-        ...prev.parameter_config,
-        [name]: value,
-      },
-    }));
-  };
 
   const handleServiceToggle = (serviceName: string) => {
     // For config services, map service name to its index in appriseServices array
@@ -286,6 +533,29 @@ export function Notifications() {
   const handleSubmit = async () => {
     setFormError(null);
     setFormSuccess(null);
+
+    // Ensure parameter type is resolved from wizard state
+    if (!formState.parameter_type && wizardParameterCategory) {
+      const paramType = getParameterType(wizardParameterCategory, wizardSubSelection);
+      if (paramType) {
+        setFormState(prev => ({ ...prev, parameter_type: paramType }));
+        
+        // Set parameter_config
+        const config: Record<string, string> = {};
+        if (wizardParameterCategory === 'bandwidth' && wizardSubSelection.bandwidthInterface) {
+          config.interface = wizardSubSelection.bandwidthInterface;
+        }
+        if (wizardParameterCategory === 'temperature' && wizardSubSelection.temperatureSensor) {
+          config.sensor_name = wizardSubSelection.temperatureSensor;
+        }
+        if (wizardParameterCategory === 'service' && wizardSubSelection.serviceName) {
+          config.service_name = wizardSubSelection.serviceName;
+        }
+        if (Object.keys(config).length > 0) {
+          setFormState(prev => ({ ...prev, parameter_config: config }));
+        }
+      }
+    }
 
     if (!formState.parameter_type) {
       setFormError('Please select a parameter to monitor.');
@@ -463,57 +733,436 @@ export function Notifications() {
     }
   };
 
-  const handleEditService = async (serviceId: number) => {
-    try {
-      const service = await apiClient.getAppriseService(serviceId);
-      setEditingService(service);
-      setEditName(service.name);
-      setEditDescription(service.description || '');
-      setEditUrl(service.url);
-      setEditEnabled(service.enabled);
-      setEditError(null);
-      setEditModalOpen(true);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load service');
-    }
-  };
 
-  const handleSaveEdit = async () => {
-    if (!editingService) return;
-    if (!editName.trim()) {
-      setEditError('Service name is required');
-      return;
-    }
+  // Available interfaces for bandwidth selection
+  const availableInterfaces = ['br0', 'br1', 'ppp0', 'eth0', 'eth1', 'wlan0'];
+  
+  // Available services for service status (from MONITORED_SERVICES)
+  const availableServices = [
+    'dnsmasq-homelab',
+    'dnsmasq-lan',
+    'pppd-eno1',
+    'linode-dyndns',
+    'nginx',
+    'router-webui-backend',
+    'postgresql',
+    'speedtest'
+  ];
 
-    setSavingService(true);
-    setEditError(null);
-    try {
-      const update: AppriseServiceUpdate = {
-        name: editName.trim(),
-        description: editDescription.trim() || null,
-        url: editUrl.trim(),
-        enabled: editEnabled,
-      };
-      await apiClient.updateAppriseService(editingService.id, update);
-      setEditModalOpen(false);
-      await fetchAppriseStatus();
-    } catch (err: any) {
-      setEditError(err.response?.data?.detail || err.message || 'Failed to update service');
-    } finally {
-      setSavingService(false);
+  // Step rendering functions
+  const renderStepContent = () => {
+    const totalSteps = getTotalSteps();
+    
+    // Step 0: Parameter Category Selection
+    if (wizardStep === 0) {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Parameter Type</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Choose what you want to monitor for notifications
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {PARAMETER_CATEGORIES.map((category) => (
+              <Card
+                key={category.id}
+                className={`cursor-pointer transition-all ${
+                  wizardParameterCategory === category.id
+                    ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+                onClick={() => setWizardParameterCategory(category.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{category.label}</span>
+                  {wizardParameterCategory === category.id && (
+                    <HiCheckCircle className="w-5 h-5 text-blue-500" />
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
     }
-  };
-
-  const handleDeleteService = async (serviceId: number) => {
-    if (!confirm('Are you sure you want to delete this service? This action cannot be undone.')) {
-      return;
+    
+    // Step 1: Sub-selection for Load Avg, Speedtest
+    if (wizardStep === 1 && (wizardParameterCategory === 'load' || wizardParameterCategory === 'speedtest')) {
+      const options = wizardParameterCategory === 'load' 
+        ? ['1m', '5m', '15m']
+        : ['download', 'upload', 'ping'];
+      const key = wizardParameterCategory === 'load' ? 'loadPeriod' : 'speedtestType';
+      const labels = wizardParameterCategory === 'load'
+        ? { '1m': '1 Minute', '5m': '5 Minutes', '15m': '15 Minutes' }
+        : { 'download': 'Download', 'upload': 'Upload', 'ping': 'Ping' };
+      
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">
+            {wizardParameterCategory === 'load' ? 'Select Load Average Period' : 'Select Speedtest Metric'}
+          </h3>
+          <div className="space-y-2">
+            {options.map((option) => (
+              <label
+                key={option}
+                className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
+                  wizardSubSelection[key] === option
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={key}
+                  value={option}
+                  checked={wizardSubSelection[key] === option}
+                  onChange={(e) => setWizardSubSelection(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="font-medium">{labels[option as keyof typeof labels] || option}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      );
     }
-    try {
-      await apiClient.deleteAppriseService(serviceId);
-      await fetchAppriseStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete service');
+    
+    // Step 1: Interface selection for Bandwidth
+    if (wizardStep === 1 && wizardParameterCategory === 'bandwidth') {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Network Interface</h3>
+          <Select
+            value={wizardSubSelection.bandwidthInterface || ''}
+            onChange={(e) => setWizardSubSelection(prev => ({ ...prev, bandwidthInterface: e.target.value }))}
+          >
+            <option value="">Select interface...</option>
+            {availableInterfaces.map((iface) => (
+              <option key={iface} value={iface}>
+                {iface}
+              </option>
+            ))}
+          </Select>
+        </div>
+      );
     }
+    
+    // Step 2: Direction selection for Bandwidth
+    if (wizardStep === 2 && wizardParameterCategory === 'bandwidth') {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Direction</h3>
+          <div className="space-y-2">
+            {['download', 'upload'].map((direction) => (
+              <label
+                key={direction}
+                className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
+                  wizardSubSelection.bandwidthDirection === direction
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="bandwidthDirection"
+                  value={direction}
+                  checked={wizardSubSelection.bandwidthDirection === direction}
+                  onChange={(e) => setWizardSubSelection(prev => ({ ...prev, bandwidthDirection: e.target.value }))}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="font-medium capitalize">{direction}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    
+    // Step 1: Sensor selection for Temperature
+    if (wizardStep === 1 && wizardParameterCategory === 'temperature') {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Temperature Sensor</h3>
+          <TextInput
+            value={wizardSubSelection.temperatureSensor || ''}
+            onChange={(e) => setWizardSubSelection(prev => ({ ...prev, temperatureSensor: e.target.value }))}
+            placeholder="e.g., cpu_thermal, nvme0"
+          />
+          <p className="text-xs text-gray-500">Enter the sensor name to monitor</p>
+        </div>
+      );
+    }
+    
+    // Step 1: Service selection for Service Status
+    if (wizardStep === 1 && wizardParameterCategory === 'service') {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Service</h3>
+          <Select
+            value={wizardSubSelection.serviceName || ''}
+            onChange={(e) => setWizardSubSelection(prev => ({ ...prev, serviceName: e.target.value }))}
+          >
+            <option value="">Select service...</option>
+            {availableServices.map((service) => (
+              <option key={service} value={service}>
+                {service}
+              </option>
+            ))}
+          </Select>
+        </div>
+      );
+    }
+    
+    // Step 2: State type selection for Service Status
+    if (wizardStep === 2 && wizardParameterCategory === 'service') {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Select Notification Trigger</h3>
+          <div className="space-y-2">
+            {[
+              { value: 'change', label: 'Change of State', desc: 'Notify on any state change' },
+              { value: 'up', label: 'Service Up', desc: 'Notify when service becomes active' },
+              { value: 'down', label: 'Service Down', desc: 'Notify when service becomes inactive or fails' }
+            ].map((option) => (
+              <label
+                key={option.value}
+                className={`flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
+                  wizardSubSelection.serviceStateType === option.value
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="serviceStateType"
+                  value={option.value}
+                  checked={wizardSubSelection.serviceStateType === option.value}
+                  onChange={(e) => setWizardSubSelection(prev => ({ ...prev, serviceStateType: e.target.value }))}
+                  className="w-4 h-4 text-blue-600 mt-1"
+                />
+                <div>
+                  <span className="font-medium block">{option.label}</span>
+                  <span className="text-xs text-gray-500">{option.desc}</span>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    
+    // Calculate which step we're on for thresholds/timing/template
+    let stepOffset = 1;
+    if (wizardParameterCategory === 'load' || wizardParameterCategory === 'speedtest' || 
+        wizardParameterCategory === 'temperature') {
+      stepOffset = 2;
+    } else if (wizardParameterCategory === 'bandwidth' || wizardParameterCategory === 'service') {
+      stepOffset = 3;
+    }
+    
+    // Thresholds step
+    if (wizardStep === stepOffset) {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Set Thresholds</h3>
+          <div>
+            <Label value="Comparison Operator" />
+            <Select
+              value={formState.comparison_operator}
+              onChange={(e) => handleInputChange('comparison_operator', e.target.value as ComparisonOperator)}
+            >
+              <option value="gt">Greater than (&gt;=)</option>
+              <option value="lt">Less than (&lt;=)</option>
+            </Select>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <Label value="Info threshold (optional)" />
+              <TextInput
+                type="number"
+                value={formState.threshold_info}
+                onChange={(e) => handleInputChange('threshold_info', e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div>
+              <Label value="Warning threshold (optional)" />
+              <TextInput
+                type="number"
+                value={formState.threshold_warning}
+                onChange={(e) => handleInputChange('threshold_warning', e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div>
+              <Label value="Failure threshold (optional)" />
+              <TextInput
+                type="number"
+                value={formState.threshold_failure}
+                onChange={(e) => handleInputChange('threshold_failure', e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            At least one threshold must be set. Lower severity thresholds are checked first.
+          </p>
+        </div>
+      );
+    }
+    
+    // Timing and Services step
+    if (wizardStep === stepOffset + 1) {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Timing and Notification Services</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label value="Duration (seconds)" />
+              <TextInput
+                type="number"
+                min={5}
+                value={formState.duration_seconds}
+                onChange={(e) => handleInputChange('duration_seconds', Number(e.target.value))}
+              />
+              <p className="text-xs text-gray-500 mt-1">How long the condition must persist</p>
+            </div>
+            <div>
+              <Label value="Cooldown (seconds)" />
+              <TextInput
+                type="number"
+                min={0}
+                value={formState.cooldown_seconds}
+                onChange={(e) => handleInputChange('cooldown_seconds', Number(e.target.value))}
+              />
+              <p className="text-xs text-gray-500 mt-1">Wait time between notifications</p>
+            </div>
+          </div>
+          <div>
+            <Label value="Notification Services" />
+            {services.length === 0 ? (
+              <p className="text-xs text-gray-500">No Apprise services configured.</p>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2 mt-2">
+                {services.map((service, index) => (
+                  <label key={service.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={formState.apprise_service_indices.includes(index)}
+                      onChange={() => handleServiceToggle((service as any).id || service.id.toString())}
+                    />
+                    <span className="font-semibold">{service.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    
+    // Template and Name step
+    if (wizardStep === stepOffset + 2) {
+      const selectedParam = parameters.find(p => p.type === formState.parameter_type);
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Rule Name and Message Template</h3>
+          <div>
+            <Label value="Rule Name" />
+            <TextInput
+              value={formState.name}
+              onChange={(e) => handleInputChange('name', e.target.value)}
+              placeholder="e.g., CPU usage alerts"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <ToggleSwitch
+              checked={formState.enabled}
+              onChange={(checked) => handleInputChange('enabled', checked)}
+            />
+            <Label value="Enabled" />
+          </div>
+          <div>
+            <Label value="Message Template" />
+            <Textarea
+              rows={4}
+              value={formState.message_template}
+              onChange={(e) => handleInputChange('message_template', e.target.value)}
+            />
+            {selectedParam?.variables && selectedParam.variables.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs text-gray-500 mb-1">Available variables:</p>
+                <div className="flex flex-wrap gap-1">
+                  {selectedParam.variables.map((variable) => (
+                    <Badge key={variable} color="info" className="text-xs">
+                      {`{{ ${variable} }}`}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    
+    // Test Notification step (final step)
+    if (wizardStep === totalSteps - 1) {
+      return (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Test Notification (Optional)</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Send a test notification to see what it will look like before creating the rule.
+          </p>
+          <Button
+            color="purple"
+            onClick={async () => {
+              setTestingNotification(true);
+              setTestNotificationResult(null);
+              try {
+                // For existing rules, test directly
+                if (formState.id && formState.id > 0) {
+                  const result = await apiClient.testNotificationRule(formState.id);
+                  setTestNotificationResult({
+                    success: result.success,
+                    message: result.success 
+                      ? `Test sent (${result.level.toUpperCase()}): ${result.message}`
+                      : result.error || 'Test failed to send'
+                  });
+                } else {
+                  // For new rules, we can't test directly, so show a preview
+                  setTestNotificationResult({
+                    success: true,
+                    message: 'Preview: Rule would be created with the current settings. Create the rule to send actual test notifications.'
+                  });
+                }
+              } catch (err: any) {
+                setTestNotificationResult({
+                  success: false,
+                  message: err.response?.data?.detail || err.message || 'Failed to send test notification'
+                });
+              } finally {
+                setTestingNotification(false);
+              }
+            }}
+            disabled={testingNotification || formState.apprise_service_indices.length === 0}
+          >
+            {testingNotification ? 'Sending Test...' : 'Send Test Notification'}
+          </Button>
+          {testNotificationResult && (
+            <Alert
+              color={testNotificationResult.success ? 'success' : 'failure'}
+              onDismiss={() => setTestNotificationResult(null)}
+            >
+              {testNotificationResult.message}
+            </Alert>
+          )}
+          <p className="text-xs text-gray-500">
+            You can proceed to create the rule without testing, or test first to verify the notification format.
+          </p>
+        </div>
+      );
+    }
+    
+    return <div>Unknown step</div>;
   };
 
   if (loading) {
@@ -711,23 +1360,6 @@ export function Notifications() {
                                 >
                                   Test
                                 </Button>
-                                {/* Edit and Delete disabled for config services - manage in Settings */}
-                                <Button
-                                  size="xs"
-                                  color="gray"
-                                  disabled
-                                  title="Config services are managed in Settings"
-                                >
-                                  <HiPencil className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  color="failure"
-                                  disabled
-                                  title="Config services are managed in Settings"
-                                >
-                                  <HiTrash className="w-4 h-4" />
-                                </Button>
                               </div>
                             </Table.Cell>
                           </Table.Row>
@@ -817,7 +1449,12 @@ export function Notifications() {
       </div>
 
       <Modal show={formOpen} size="4xl" onClose={closeForm}>
-        <Modal.Header>{formState.id ? 'Edit Notification Rule' : 'Create Notification Rule'}</Modal.Header>
+        <Modal.Header>
+          {formState.id ? 'Edit Notification Rule' : 'Create Notification Rule'}
+          <div className="mt-2 text-sm text-gray-500">
+            Step {wizardStep + 1} of {getTotalSteps()}
+          </div>
+        </Modal.Header>
         <Modal.Body>
           <div className="space-y-4 max-h-[70vh] overflow-y-auto">
             {formError && (
@@ -835,195 +1472,69 @@ export function Notifications() {
                 {testResult}
               </Alert>
             )}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="name" value="Name" />
-                <TextInput
-                  id="name"
-                  value={formState.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                  placeholder="CPU usage alerts"
-                />
-              </div>
-              <div className="flex items-end justify-between">
-                <div>
-                  <Label value="Enabled" />
-                  <ToggleSwitch
-                    checked={formState.enabled}
-                    onChange={(checked) => handleInputChange('enabled', checked)}
-                  />
-                </div>
-                <div>
-                  <Label value="Comparison" />
-                  <Select
-                    value={formState.comparison_operator}
-                    onChange={(e) => handleInputChange('comparison_operator', e.target.value as ComparisonOperator)}
-                  >
-                    <option value="gt">Greater than (&gt;=)</option>
-                    <option value="lt">Less than (&lt;=)</option>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="parameter" value="Parameter" />
-              <Select
-                id="parameter"
-                value={formState.parameter_type}
-                onChange={(e) =>
-                  setFormState((prev) => ({
-                    ...prev,
-                    parameter_type: e.target.value,
-                    parameter_config: {},
-                  }))
-                }
-              >
-                <option value="">Select parameter</option>
-                {parameters.map((param) => (
-                  <option key={param.type} value={param.type}>
-                    {param.label}
-                  </option>
-                ))}
-              </Select>
-              {selectedParameter?.description && (
-                <p className="text-xs text-gray-500">{selectedParameter.description}</p>
-              )}
-            </div>
-
-            {selectedParameter?.requires_config && (
-              <Card>
-                <h3 className="mb-2 text-sm font-semibold">Parameter Settings</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {selectedParameter.config_fields.map((field) => (
-                    <div key={field.name}>
-                      <Label htmlFor={`config-${field.name}`} value={field.label} />
-                      {field.field_type === 'select' && field.options ? (
-                        <Select
-                          id={`config-${field.name}`}
-                          value={formState.parameter_config[field.name] || ''}
-                          onChange={(e) => handleConfigFieldChange(field.name, e.target.value)}
-                        >
-                          <option value="">Select...</option>
-                          {field.options.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <TextInput
-                          id={`config-${field.name}`}
-                          value={formState.parameter_config[field.name] || ''}
-                          onChange={(e) => handleConfigFieldChange(field.name, e.target.value)}
-                          placeholder={field.description}
-                        />
-                      )}
-                      {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            
+            {/* Step Progress Indicator */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                {Array.from({ length: getTotalSteps() }).map((_, index) => (
+                  <div key={index} className="flex items-center flex-1">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                        index === wizardStep
+                          ? 'bg-blue-500 text-white'
+                          : index < wizardStep
+                          ? 'bg-green-500 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      {index < wizardStep ? '✓' : index + 1}
                     </div>
-                  ))}
-                </div>
-              </Card>
-            )}
-
-            <Card>
-              <h3 className="mb-2 text-sm font-semibold">Thresholds</h3>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <Label value="Info threshold" />
-                  <TextInput
-                    value={formState.threshold_info}
-                    onChange={(e) => handleInputChange('threshold_info', e.target.value)}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <Label value="Warning threshold" />
-                  <TextInput
-                    value={formState.threshold_warning}
-                    onChange={(e) => handleInputChange('threshold_warning', e.target.value)}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <Label value="Failure threshold" />
-                  <TextInput
-                    value={formState.threshold_failure}
-                    onChange={(e) => handleInputChange('threshold_failure', e.target.value)}
-                    placeholder="Optional"
-                  />
-                </div>
-              </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label value="Duration (seconds)" />
-                  <TextInput
-                    type="number"
-                    min={5}
-                    value={formState.duration_seconds}
-                    onChange={(e) => handleInputChange('duration_seconds', Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <Label value="Cooldown (seconds)" />
-                  <TextInput
-                    type="number"
-                    min={0}
-                    value={formState.cooldown_seconds}
-                    onChange={(e) => handleInputChange('cooldown_seconds', Number(e.target.value))}
-                  />
-                </div>
-              </div>
-            </Card>
-
-            <Card>
-              <h3 className="mb-2 text-sm font-semibold">Apprise Services</h3>
-              {services.length === 0 ? (
-                <p className="text-xs text-gray-500">No Apprise services configured.</p>
-              ) : (
-                <div className="grid gap-2 md:grid-cols-2">
-                  {services.map((service, index) => (
-                    <label key={service.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                      <Checkbox
-                        checked={formState.apprise_service_indices.includes(index)}
-                        onChange={() => handleServiceToggle((service as any).id || service.id.toString())}
+                    {index < getTotalSteps() - 1 && (
+                      <div
+                        className={`flex-1 h-1 mx-2 ${
+                          index < wizardStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
                       />
-                      <span>
-                        <span className="font-semibold">{service.name}</span>
-                        {service.description && (
-                          <span className="ml-2 text-xs text-gray-500">{service.description}</span>
-                        )}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            <div>
-              <Label htmlFor="messageTemplate" value="Message Template" />
-              <Textarea
-                id="messageTemplate"
-                rows={4}
-                value={formState.message_template}
-                onChange={(e) => handleInputChange('message_template', e.target.value)}
-              />
-              <div className="mt-2 text-xs text-gray-500">
-                Available variables:{' '}
-                {(selectedParameter?.variables || []).map((variable) => (
-                  <Badge key={variable} color="info" className="mr-1">
-                    {variable}
-                  </Badge>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
+            
+            {/* Step Content */}
+            {renderStepContent()}
           </div>
         </Modal.Body>
         <Modal.Footer>
-          <Button onClick={handleSubmit}>{formState.id ? 'Save Changes' : 'Create Rule'}</Button>
-          <Button color="light" onClick={closeForm}>
-            Cancel
-          </Button>
+          <div className="flex justify-between w-full">
+            <Button
+              color="light"
+              onClick={handleWizardPrev}
+              disabled={wizardStep === 0}
+            >
+              Previous
+            </Button>
+            <div className="flex gap-2">
+              <Button color="light" onClick={closeForm}>
+                Cancel
+              </Button>
+              {wizardStep === getTotalSteps() - 1 ? (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!validateStep(wizardStep)}
+                >
+                  {formState.id ? 'Save Changes' : 'Create Rule'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleWizardNext}
+                  disabled={!validateStep(wizardStep)}
+                >
+                  Next
+                </Button>
+              )}
+            </div>
+          </div>
         </Modal.Footer>
       </Modal>
 
@@ -1071,70 +1582,6 @@ export function Notifications() {
         </Modal.Body>
       </Modal>
 
-      {/* Edit Service Modal */}
-      <Modal show={editModalOpen} onClose={() => setEditModalOpen(false)} size="lg">
-        <Modal.Header>Edit Apprise Service</Modal.Header>
-        <Modal.Body className="max-h-[70vh] overflow-y-auto">
-          <div className="space-y-4">
-            {editError && (
-              <Alert color="failure">
-                {editError}
-              </Alert>
-            )}
-            <div>
-              <Label htmlFor="editName" value="Service Name *" />
-              <TextInput
-                id="editName"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                required
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="editDescription" value="Description (optional)" />
-              <TextInput
-                id="editDescription"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="editUrl" value="Service URL *" />
-              <TextInput
-                id="editUrl"
-                value={editUrl}
-                onChange={(e) => setEditUrl(e.target.value)}
-                required
-                className="mt-1 font-mono text-sm"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="editEnabled"
-                checked={editEnabled}
-                onChange={(e) => setEditEnabled(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <Label htmlFor="editEnabled" value="Enabled" />
-            </div>
-          </div>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button
-            color="blue"
-            onClick={handleSaveEdit}
-            disabled={savingService || !editName.trim() || !editUrl.trim()}
-          >
-            {savingService ? 'Saving...' : 'Save'}
-          </Button>
-          <Button color="gray" onClick={() => setEditModalOpen(false)}>
-            Cancel
-          </Button>
-        </Modal.Footer>
-      </Modal>
     </div>
   );
 }
