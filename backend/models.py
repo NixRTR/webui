@@ -381,12 +381,17 @@ class ParameterType(str, Enum):
     LOAD_AVG_15M = "load_avg_15m"
     INTERFACE_RX_BYTES = "interface_rx_bytes"
     INTERFACE_TX_BYTES = "interface_tx_bytes"
+    INTERFACE_TOTAL_THROUGHPUT = "interface_total_throughput"
     INTERFACE_RX_ERRORS = "interface_rx_errors"
     INTERFACE_TX_ERRORS = "interface_tx_errors"
     TEMPERATURE_C = "temperature_c"
     SERVICE_ACTIVE = "service_active"
     SERVICE_ENABLED = "service_enabled"
+    SERVICE_STATUS = "service_status"
     DISK_USAGE_PERCENT = "disk_usage_percent"
+    SPEEDTEST_DOWNLOAD = "speedtest_download"
+    SPEEDTEST_UPLOAD = "speedtest_upload"
+    SPEEDTEST_PING = "speedtest_ping"
 
 
 class NotificationParameterConfigField(BaseModel):

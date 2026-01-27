@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 import logging
+import subprocess
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,6 +17,7 @@ from ..database import (
     InterfaceStatsDB,
     TemperatureMetricsDB,
     ServiceStatusDB,
+    SpeedtestResultDB,
     NotificationRuleDB,
     NotificationStateDB,
     NotificationHistoryDB,
@@ -154,6 +156,210 @@ def _interface_rate_fetcher(column_name: str, unit_multiplier: float) -> Paramet
     return fetch
 
 
+def _interface_total_throughput_fetcher() -> ParameterFetcher:
+    """Fetcher for combined RX + TX throughput (total)"""
+    async def fetch(session: AsyncSession, config: Optional[Dict[str, Any]]) -> Tuple[Optional[float], Dict[str, Any]]:
+        interface = (config or {}).get("interface")
+        if not interface:
+            return None, {}
+        
+        # Query last 2 data points for both RX and TX
+        result = await session.execute(
+            select(
+                InterfaceStatsDB.timestamp,
+                InterfaceStatsDB.rx_bytes,
+                InterfaceStatsDB.tx_bytes,
+            )
+            .where(InterfaceStatsDB.interface == interface)
+            .order_by(InterfaceStatsDB.timestamp.desc())
+            .limit(2)
+        )
+        rows = result.all()
+        if len(rows) < 2:
+            return None, {}
+
+        latest, previous = rows[0], rows[1]
+        latest_ts, latest_rx, latest_tx = latest
+        previous_ts, previous_rx, previous_tx = previous
+
+        if latest_rx is None or latest_tx is None or previous_rx is None or previous_tx is None:
+            return None, {}
+
+        time_delta = (latest_ts - previous_ts).total_seconds()
+        if time_delta <= 0:
+            return None, {}
+
+        # Calculate RX and TX rates separately
+        rx_delta = latest_rx - previous_rx
+        tx_delta = latest_tx - previous_tx
+        
+        # Convert to Mbps
+        rx_rate_mbps = (rx_delta * 8) / (time_delta * 1_000_000)
+        tx_rate_mbps = (tx_delta * 8) / (time_delta * 1_000_000)
+        
+        # Total is sum of RX + TX
+        total_throughput_mbps = rx_rate_mbps + tx_rate_mbps
+        
+        context = {
+            "timestamp": latest_ts,
+            "interface": interface,
+            "rx_rate_mbps": rx_rate_mbps,
+            "tx_rate_mbps": tx_rate_mbps,
+            "total_throughput_mbps": total_throughput_mbps,
+            "interval_seconds": time_delta,
+        }
+        return total_throughput_mbps, context
+
+    return fetch
+
+
+def _speedtest_fetcher(column_name: str) -> ParameterFetcher:
+    """Fetcher for speedtest results"""
+    async def fetch(session: AsyncSession, config: Optional[Dict[str, Any]]) -> Tuple[Optional[float], Dict[str, Any]]:
+        result = await session.execute(
+            select(SpeedtestResultDB)
+            .order_by(SpeedtestResultDB.timestamp.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        if not row:
+            return None, {}
+        
+        value = getattr(row, column_name)
+        if value is None:
+            return None, {}
+        
+        context = {
+            "timestamp": row.timestamp,
+            "download_mbps": row.download_mbps,
+            "upload_mbps": row.upload_mbps,
+            "ping_ms": row.ping_ms,
+            "server_name": row.server_name,
+            "server_location": row.server_location,
+        }
+        return float(value), context
+
+    return fetch
+
+
+def _service_status_enhanced_fetcher() -> ParameterFetcher:
+    """Fetcher for enhanced service status with state strings and logs"""
+    async def fetch(session: AsyncSession, config: Optional[Dict[str, Any]]) -> Tuple[Optional[float], Dict[str, Any]]:
+        service_name = (config or {}).get("service_name")
+        if not service_name:
+            return None, {}
+        
+        try:
+            # Get service enabled state
+            enabled_result = subprocess.run(
+                ['systemctl', 'is-enabled', service_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False
+            )
+            is_enabled = enabled_result.returncode == 0 and enabled_result.stdout.strip() == 'enabled'
+            
+            # Get service state properties
+            show_result = subprocess.run(
+                ['systemctl', 'show', service_name, '--property=ActiveState,SubState,LoadState'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False
+            )
+            
+            active_state = None
+            sub_state = None
+            load_state = None
+            
+            if show_result.returncode == 0:
+                for line in show_result.stdout.strip().split('\n'):
+                    if line.startswith('ActiveState='):
+                        active_state = line.split('=', 1)[1].strip()
+                    elif line.startswith('SubState='):
+                        sub_state = line.split('=', 1)[1].strip()
+                    elif line.startswith('LoadState='):
+                        load_state = line.split('=', 1)[1].strip()
+            
+            # Map states to numeric values
+            state_value = 0
+            state_string = "Unknown"
+            log_snippet = None
+            
+            # Check if disabled first
+            if not is_enabled:
+                state_value = 0
+                state_string = "Disabled"
+            # Check for failed state
+            elif active_state == "failed":
+                state_value = 2
+                state_string = "Failed"
+                # Get log snippet for failed services
+                try:
+                    log_result = subprocess.run(
+                        ['journalctl', '-u', service_name, '-n', '20', '--no-pager', '-p', 'err'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False
+                    )
+                    if log_result.returncode == 0 and log_result.stdout:
+                        log_snippet = log_result.stdout.strip()
+                        # Truncate if too long
+                        if len(log_snippet) > 500:
+                            log_snippet = log_snippet[-500:]
+                except Exception as e:
+                    logger.debug(f"Failed to retrieve logs for {service_name}: {e}")
+            # Check for error state
+            elif active_state == "error" or sub_state == "error" or load_state == "error":
+                state_value = 3
+                state_string = "Error"
+                # Get log snippet for error services
+                try:
+                    log_result = subprocess.run(
+                        ['journalctl', '-u', service_name, '-n', '20', '--no-pager', '-p', 'err'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=False
+                    )
+                    if log_result.returncode == 0 and log_result.stdout:
+                        log_snippet = log_result.stdout.strip()
+                        # Truncate if too long
+                        if len(log_snippet) > 500:
+                            log_snippet = log_snippet[-500:]
+                except Exception as e:
+                    logger.debug(f"Failed to retrieve logs for {service_name}: {e}")
+            # Check for active state
+            elif active_state == "active":
+                state_value = 1
+                state_string = "Active"
+            else:
+                # Inactive or unknown state
+                state_value = 0
+                state_string = "Inactive"
+            
+            context = {
+                "service_name": service_name,
+                "state_string": state_string,
+                "state_value": state_value,
+                "active_state": active_state or "unknown",
+                "sub_state": sub_state or "unknown",
+                "load_state": load_state or "unknown",
+            }
+            if log_snippet:
+                context["log_snippet"] = log_snippet
+            
+            return float(state_value), context
+            
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ValueError) as e:
+            logger.debug(f"Error fetching service status for {service_name}: {e}")
+            return None, {}
+
+    return fetch
+
+
 def _disk_usage_fetcher() -> ParameterFetcher:
     async def fetch(_: AsyncSession, config: Optional[Dict[str, Any]]) -> Tuple[Optional[float], Dict[str, Any]]:
         mountpoint = (config or {}).get("mountpoint")
@@ -211,7 +417,7 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
     ),
     ParameterType.INTERFACE_RX_BYTES.value: ParameterDefinition(
         type=ParameterType.INTERFACE_RX_BYTES.value,
-        label="Interface RX Throughput",
+        label="Interface Download MBit/s",
         unit="Mbps",
         description="Inbound throughput for a specific interface (calculated from byte counters)",
         requires_config=True,
@@ -227,7 +433,7 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
     ),
     ParameterType.INTERFACE_TX_BYTES.value: ParameterDefinition(
         type=ParameterType.INTERFACE_TX_BYTES.value,
-        label="Interface TX Throughput",
+        label="Interface Upload MBit/s",
         unit="Mbps",
         description="Outbound throughput for a specific interface (calculated from byte counters)",
         requires_config=True,
@@ -240,6 +446,22 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
         ],
         variables=["interface", "tx_rate_mbps"],
         fetcher=_interface_rate_fetcher("tx_bytes", unit_multiplier=8 / 1_000_000),
+    ),
+    ParameterType.INTERFACE_TOTAL_THROUGHPUT.value: ParameterDefinition(
+        type=ParameterType.INTERFACE_TOTAL_THROUGHPUT.value,
+        label="Interface Total MBit/s",
+        unit="Mbps",
+        description="Combined inbound and outbound throughput for a specific interface (RX + TX)",
+        requires_config=True,
+        config_fields=[
+            NotificationParameterConfigField(
+                name="interface",
+                label="Interface Name",
+                description="Example: br0, br1, ppp0",
+            )
+        ],
+        variables=["interface", "total_throughput_mbps", "rx_rate_mbps", "tx_rate_mbps"],
+        fetcher=_interface_total_throughput_fetcher(),
     ),
     ParameterType.INTERFACE_RX_ERRORS.value: ParameterDefinition(
         type=ParameterType.INTERFACE_RX_ERRORS.value,
@@ -336,6 +558,52 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
         ],
         variables=["mountpoint", "disk_usage_percent"],
         fetcher=_disk_usage_fetcher(),
+    ),
+    ParameterType.SERVICE_STATUS.value: ParameterDefinition(
+        type=ParameterType.SERVICE_STATUS.value,
+        label="Service Status",
+        unit="state",
+        description="Service status with state strings (Disabled, Active, Failed, Error) and error logs",
+        requires_config=True,
+        config_fields=[
+            NotificationParameterConfigField(
+                name="service_name",
+                label="Service Name",
+                description="Example: router-webui-backend",
+            )
+        ],
+        variables=["service_name", "state_string", "state_value", "log_snippet", "active_state", "sub_state", "load_state"],
+        fetcher=_service_status_enhanced_fetcher(),
+    ),
+    ParameterType.SPEEDTEST_DOWNLOAD.value: ParameterDefinition(
+        type=ParameterType.SPEEDTEST_DOWNLOAD.value,
+        label="Speedtest Download",
+        unit="Mbps",
+        description="Latest speedtest download speed",
+        requires_config=False,
+        config_fields=[],
+        variables=["download_mbps", "upload_mbps", "ping_ms", "server_name", "server_location", "timestamp"],
+        fetcher=_speedtest_fetcher("download_mbps"),
+    ),
+    ParameterType.SPEEDTEST_UPLOAD.value: ParameterDefinition(
+        type=ParameterType.SPEEDTEST_UPLOAD.value,
+        label="Speedtest Upload",
+        unit="Mbps",
+        description="Latest speedtest upload speed",
+        requires_config=False,
+        config_fields=[],
+        variables=["download_mbps", "upload_mbps", "ping_ms", "server_name", "server_location", "timestamp"],
+        fetcher=_speedtest_fetcher("upload_mbps"),
+    ),
+    ParameterType.SPEEDTEST_PING.value: ParameterDefinition(
+        type=ParameterType.SPEEDTEST_PING.value,
+        label="Speedtest Ping",
+        unit="ms",
+        description="Latest speedtest ping latency",
+        requires_config=False,
+        config_fields=[],
+        variables=["download_mbps", "upload_mbps", "ping_ms", "server_name", "server_location", "timestamp"],
+        fetcher=_speedtest_fetcher("ping_ms"),
     ),
 }
 
