@@ -28,6 +28,7 @@ from ..models import (
     ParameterType,
 )
 from ..collectors.system import collect_disk_space
+from ..collectors.services import MONITORED_SERVICES
 from ..utils.apprise import send_notification_async
 from jinja2 import Environment, StrictUndefined, TemplateError
 
@@ -374,6 +375,11 @@ def _disk_usage_fetcher() -> ParameterFetcher:
     return fetch
 
 
+def _get_service_options() -> List[Dict[str, str]]:
+    """Generate options list for service_name dropdown"""
+    return [{"value": service, "label": service} for service in MONITORED_SERVICES]
+
+
 PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
     ParameterType.CPU_PERCENT.value: ParameterDefinition(
         type=ParameterType.CPU_PERCENT.value,
@@ -521,7 +527,9 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
             NotificationParameterConfigField(
                 name="service_name",
                 label="Service Name",
-                description="Example: router-webui-backend",
+                field_type="select",
+                description="Select a service to monitor",
+                options=_get_service_options(),
             )
         ],
         variables=["service_name", "service_active"],
@@ -537,7 +545,9 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
             NotificationParameterConfigField(
                 name="service_name",
                 label="Service Name",
-                description="Example: router-webui-backend",
+                field_type="select",
+                description="Select a service to monitor",
+                options=_get_service_options(),
             )
         ],
         variables=["service_name", "service_enabled"],
@@ -569,7 +579,9 @@ PARAMETER_DEFINITIONS: Dict[str, ParameterDefinition] = {
             NotificationParameterConfigField(
                 name="service_name",
                 label="Service Name",
-                description="Example: router-webui-backend",
+                field_type="select",
+                description="Select a service to monitor",
+                options=_get_service_options(),
             )
         ],
         variables=["service_name", "state_string", "state_value", "log_snippet", "active_state", "sub_state", "load_state"],
