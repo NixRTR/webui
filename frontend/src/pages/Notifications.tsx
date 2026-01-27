@@ -30,6 +30,7 @@ import type {
   AppriseService,
   AppriseServiceUpdate,
 } from '../types/notifications';
+import type { AppriseConfig } from '../types/apprise-config';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
 
 interface NotificationRuleFormState {
@@ -116,22 +117,47 @@ export function Notifications() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
   
-  // Send notification state - track status per service
-  const [sendingServices, setSendingServices] = useState<Set<number>>(new Set());
-  const [sendResults, setSendResults] = useState<Map<number, { success: boolean; message: string; details?: string }>>(new Map());
+  // Send notification state - track status per service (using service names as keys)
+  const [sendingServices, setSendingServices] = useState<Set<string>>(new Set());
+  const [sendResults, setSendResults] = useState<Map<string, { success: boolean; message: string; details?: string }>>(new Map());
+
+  const formatServiceName = (name: string): string => {
+    const nameMap: Record<string, string> = {
+      'homeAssistant': 'Home Assistant',
+      'telegram': 'Telegram',
+      'discord': 'Discord',
+      'slack': 'Slack',
+      'email': 'Email',
+      'ntfy': 'ntfy'
+    };
+    return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
+  };
+
+  const transformConfigServices = (config: AppriseConfig): Array<AppriseServiceInfo & { id: string; originalName: string }> => {
+    return Object.entries(config.services || {})
+      .filter(([_, service]) => service.enable === true)
+      .map(([name, service]) => ({
+        id: name, // Use service name as ID (string) - stored separately from numeric id
+        name: formatServiceName(name),
+        description: null,
+        enabled: service.enable,
+        originalName: name // Store original name for API calls
+      } as AppriseServiceInfo & { id: string; originalName: string }));
+  };
 
   useEffect(() => {
     const bootstrap = async () => {
       try {
         setLoading(true);
-        const [rulesData, paramsData, serviceData] = await Promise.all([
+        const [rulesData, paramsData, configData] = await Promise.all([
           apiClient.getNotificationRules(),
           apiClient.getNotificationParameters(),
-          apiClient.getAppriseServices(),
+          apiClient.getAppriseConfig(),
         ]);
         setRules(rulesData);
         setParameters(paramsData);
-        setServices(serviceData);
+        const servicesList = transformConfigServices(configData);
+        setServices(servicesList as any); // Cast to any since we're using string IDs for config services
       } catch (err: any) {
         setError(err?.response?.data?.detail || err.message || 'Failed to load notifications');
       } finally {
@@ -148,8 +174,9 @@ export function Notifications() {
       const status = await apiClient.getAppriseStatus();
       setAppriseEnabled(status.enabled);
       
-      const serviceList = await apiClient.getAppriseServices();
-      setAppriseServices(serviceList);
+      const config = await apiClient.getAppriseConfig();
+      const servicesList = transformConfigServices(config);
+      setAppriseServices(servicesList);
     } catch (err: any) {
       setAppriseEnabled(false);
     }
@@ -228,12 +255,19 @@ export function Notifications() {
     }));
   };
 
-  const handleServiceToggle = (serviceId: number) => {
+  const handleServiceToggle = (serviceName: string) => {
+    // For config services, map service name to its index in appriseServices array
+    const serviceIndex = appriseServices.findIndex(s => {
+      const id = (s as any).id;
+      return id === serviceName || id?.toString() === serviceName || s.id?.toString() === serviceName;
+    });
+    if (serviceIndex === -1) return;
+    
     setFormState((prev) => {
-      const exists = prev.apprise_service_indices.includes(serviceId);
+      const exists = prev.apprise_service_indices.includes(serviceIndex);
       const updated = exists
-        ? prev.apprise_service_indices.filter((id) => id !== serviceId)
-        : [...prev.apprise_service_indices, serviceId].sort((a, b) => a - b);
+        ? prev.apprise_service_indices.filter((id) => id !== serviceIndex)
+        : [...prev.apprise_service_indices, serviceIndex].sort((a, b) => a - b);
       return { ...prev, apprise_service_indices: updated };
     });
   };
@@ -365,63 +399,65 @@ export function Notifications() {
     }
   };
 
-  const handleSendToService = async (serviceId: number) => {
+  const handleSendToService = async (serviceName: string) => {
     if (!notificationBody.trim()) {
-      setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: 'Message body is required' }));
+      setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: 'Message body is required' }));
       return;
     }
 
-    setSendingServices(prev => new Set(prev).add(serviceId));
+    setSendingServices(prev => new Set(prev).add(serviceName));
     setSendResults(prev => {
       const newMap = new Map(prev);
-      newMap.delete(serviceId);
+      newMap.delete(serviceName);
       return newMap;
     });
     
+    // Note: Config services don't have a direct send-by-name endpoint
+    // For now, we'll use the general send endpoint which sends to all enabled services
+    // In the future, this could be enhanced to support sending to specific config services
     try {
-      const result = await apiClient.sendAppriseNotificationToServiceById(
-        serviceId,
+      const result = await apiClient.sendAppriseNotification(
         notificationBody,
         notificationTitle || undefined,
         notificationType || undefined
       );
-      setSendResults(prev => new Map(prev).set(serviceId, result));
+      setSendResults(prev => new Map(prev).set(serviceName, result));
       
       if (!result.success) {
         const errorMsg = result.details 
           ? `${result.message}: ${result.details}`
           : result.message;
-        setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: errorMsg, details: result.details }));
+        setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: errorMsg, details: result.details }));
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to send notification';
-      setSendResults(prev => new Map(prev).set(serviceId, {
+      setSendResults(prev => new Map(prev).set(serviceName, {
         success: false,
         message: errorMsg,
       }));
     } finally {
       setSendingServices(prev => {
         const newSet = new Set(prev);
-        newSet.delete(serviceId);
+        newSet.delete(serviceName);
         return newSet;
       });
     }
   };
 
-  const handleTestService = async (serviceId: number) => {
-    setSendingServices(prev => new Set(prev).add(serviceId));
+  const handleTestService = async (serviceName: string) => {
+    setSendingServices(prev => new Set(prev).add(serviceName));
     try {
-      const result = await apiClient.testAppriseServiceById(serviceId);
-      setSendResults(prev => new Map(prev).set(serviceId, result));
+      const result = await apiClient.testAppriseServiceByName(serviceName);
+      setSendResults(prev => new Map(prev).set(serviceName, result));
       if (!result.success) {
-        setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: result.message, details: result.details }));
+        setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: result.message, details: result.details }));
       }
     } catch (err: any) {
-      setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: err.response?.data?.detail || err.message }));
+      setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: err.response?.data?.detail || err.message }));
     } finally {
       setSendingServices(prev => {
         const newSet = new Set(prev);
-        newSet.delete(serviceId);
+        newSet.delete(serviceName);
         return newSet;
       });
     }
@@ -640,8 +676,9 @@ export function Notifications() {
                     </Table.Head>
                     <Table.Body className="divide-y">
                       {appriseServices.map((service) => {
-                        const isSending = sendingServices.has(service.id);
-                        const sendResult = sendResults.get(service.id);
+                        const serviceName = (service as any).id || service.id.toString();
+                        const isSending = sendingServices.has(serviceName);
+                        const sendResult = sendResults.get(serviceName);
                         
                         return (
                           <Table.Row key={service.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
@@ -661,7 +698,7 @@ export function Notifications() {
                                 <Button
                                   size="xs"
                                   color="blue"
-                                  onClick={() => handleSendToService(service.id)}
+                                  onClick={() => handleSendToService(serviceName)}
                                   disabled={isSending || !notificationBody.trim() || !service.enabled}
                                 >
                                   {isSending ? 'Sending...' : sendResult?.success ? 'Send Again' : 'Send'}
@@ -669,23 +706,25 @@ export function Notifications() {
                                 <Button
                                   size="xs"
                                   color="gray"
-                                  onClick={() => handleTestService(service.id)}
+                                  onClick={() => handleTestService(serviceName)}
                                   disabled={!service.enabled}
                                 >
                                   Test
                                 </Button>
+                                {/* Edit and Delete disabled for config services - manage in Settings */}
                                 <Button
                                   size="xs"
                                   color="gray"
-                                  onClick={() => handleEditService(service.id)}
+                                  disabled
+                                  title="Config services are managed in Settings"
                                 >
                                   <HiPencil className="w-4 h-4" />
                                 </Button>
                                 <Button
                                   size="xs"
                                   color="failure"
-                                  onClick={() => handleDeleteService(service.id)}
-                                  disabled={!service.enabled}
+                                  disabled
+                                  title="Config services are managed in Settings"
                                 >
                                   <HiTrash className="w-4 h-4" />
                                 </Button>
@@ -943,11 +982,11 @@ export function Notifications() {
                 <p className="text-xs text-gray-500">No Apprise services configured.</p>
               ) : (
                 <div className="grid gap-2 md:grid-cols-2">
-                  {services.map((service) => (
+                  {services.map((service, index) => (
                     <label key={service.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                       <Checkbox
-                        checked={formState.apprise_service_indices.includes(service.id)}
-                        onChange={() => handleServiceToggle(service.id)}
+                        checked={formState.apprise_service_indices.includes(index)}
+                        onChange={() => handleServiceToggle((service as any).id || service.id.toString())}
                       />
                       <span>
                         <span className="font-semibold">{service.name}</span>
