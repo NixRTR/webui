@@ -26,10 +26,11 @@ import type {
   NotificationHistoryRecord,
   NotificationRuleCreate,
   ComparisonOperator,
-  AppriseServiceInfo,
+  AppriseServiceInfoConfig,
 } from '../types/notifications';
 import type { AppriseConfig } from '../types/apprise-config';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
+import { transformConfigServices } from '../utils/apprise';
 
 interface NotificationRuleFormState {
   id?: number;
@@ -130,7 +131,7 @@ export function Notifications() {
 
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [parameters, setParameters] = useState<NotificationParameterMetadata[]>([]);
-  const [services, setServices] = useState<AppriseServiceInfo[]>([]);
+  const [services, setServices] = useState<AppriseServiceInfoConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -153,7 +154,7 @@ export function Notifications() {
   const [testingNotification, setTestingNotification] = useState(false);
   
   // Apprise service management state
-  const [appriseServices, setAppriseServices] = useState<AppriseServiceInfo[]>([]);
+  const [appriseServices, setAppriseServices] = useState<AppriseServiceInfoConfig[]>([]);
   const [appriseEnabled, setAppriseEnabled] = useState(false);
   const [urlGeneratorModalOpen, setUrlGeneratorModalOpen] = useState(false);
   
@@ -167,30 +168,6 @@ export function Notifications() {
   // Send notification state - track status per service (using service names as keys)
   const [sendingServices, setSendingServices] = useState<Set<string>>(new Set());
   const [sendResults, setSendResults] = useState<Map<string, { success: boolean; message: string; details?: string }>>(new Map());
-
-  const formatServiceName = (name: string): string => {
-    const nameMap: Record<string, string> = {
-      'homeAssistant': 'Home Assistant',
-      'telegram': 'Telegram',
-      'discord': 'Discord',
-      'slack': 'Slack',
-      'email': 'Email',
-      'ntfy': 'ntfy'
-    };
-    return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
-  };
-
-  const transformConfigServices = (config: AppriseConfig): Array<AppriseServiceInfo & { id: string; originalName: string }> => {
-    return Object.entries(config.services || {})
-      .filter(([_, service]) => service.enable === true)
-      .map(([name, service]) => ({
-        id: name, // Use service name as ID (string) - stored separately from numeric id
-        name: formatServiceName(name),
-        description: null,
-        enabled: service.enable,
-        originalName: name // Store original name for API calls
-      } as AppriseServiceInfo & { id: string; originalName: string }));
-  };
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -504,10 +481,7 @@ export function Notifications() {
 
   const handleServiceToggle = (serviceName: string) => {
     // For config services, map service name to its index in appriseServices array
-    const serviceIndex = appriseServices.findIndex(s => {
-      const id = (s as any).id;
-      return id === serviceName || id?.toString() === serviceName || s.id?.toString() === serviceName;
-    });
+    const serviceIndex = appriseServices.findIndex(s => s.originalName === serviceName);
     if (serviceIndex === -1) return;
     
     setFormState((prev) => {
@@ -1047,7 +1021,7 @@ export function Notifications() {
                   <label key={service.id} className="flex items-center gap-2 text-sm">
                     <Checkbox
                       checked={formState.apprise_service_indices.includes(index)}
-                      onChange={() => handleServiceToggle((service as any).id || service.id.toString())}
+                      onChange={() => handleServiceToggle(service.originalName)}
                     />
                     <span className="font-semibold">{service.name}</span>
                   </label>

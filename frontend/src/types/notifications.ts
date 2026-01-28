@@ -83,6 +83,14 @@ export interface AppriseServiceInfo {
   enabled: boolean;
 }
 
+export interface AppriseServiceInfoConfig {
+  id: string; // Service name used as ID for config-based services
+  name: string;
+  description?: string | null;
+  enabled: boolean;
+  originalName: string; // Original service name from config for API calls
+}
+
 export interface AppriseService {
   id: number;
   name: string;

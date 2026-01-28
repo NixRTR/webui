@@ -8,9 +8,11 @@ import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
-import { HiBell, HiCheckCircle, HiXCircle, HiInformationCircle, HiPencil, HiTrash } from 'react-icons/hi';
+import { HiBell, HiCheckCircle, HiXCircle, HiInformationCircle } from 'react-icons/hi';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
-import type { AppriseServiceInfo, AppriseService, AppriseServiceUpdate } from '../types/notifications';
+import type { AppriseServiceInfoConfig } from '../types/notifications';
+import type { AppriseConfig } from '../types/apprise-config';
+import { transformConfigServices } from '../utils/apprise';
 
 export function Apprise() {
   const token = localStorage.getItem('access_token');
@@ -18,19 +20,9 @@ export function Apprise() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [services, setServices] = useState<AppriseServiceInfo[]>([]);
+  const [services, setServices] = useState<Array<AppriseServiceInfo & { id: string; originalName: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Edit modal state
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingService, setEditingService] = useState<AppriseService | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editUrl, setEditUrl] = useState('');
-  const [editEnabled, setEditEnabled] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   const [urlGeneratorModalOpen, setUrlGeneratorModalOpen] = useState(false);
   
   // Notification form state
@@ -57,8 +49,9 @@ export function Apprise() {
       const status = await apiClient.getAppriseStatus();
       setEnabled(status.enabled);
       
-      const serviceList = await apiClient.getAppriseServices();
-      setServices(serviceList);
+      const config = await apiClient.getAppriseConfig();
+      const servicesList = transformConfigServices(config);
+      setServices(servicesList);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to fetch Apprise status');
       setEnabled(false);
@@ -98,118 +91,65 @@ export function Apprise() {
     }
   };
 
-  const handleSendToService = async (serviceId: number) => {
+  const handleSendToService = async (serviceName: string) => {
     if (!notificationBody.trim()) {
-      setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: 'Message body is required' }));
+      setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: 'Message body is required' }));
       return;
     }
 
-    setSendingServices(prev => new Set(prev).add(serviceId));
+    setSendingServices(prev => new Set(prev).add(serviceName));
     setSendResults(prev => {
       const newMap = new Map(prev);
-      newMap.delete(serviceId);
+      newMap.delete(serviceName);
       return newMap;
     });
     
     try {
-      const result = await apiClient.sendAppriseNotificationToServiceById(
-        serviceId,
+      // Use general send endpoint - config services are managed in Settings
+      const result = await apiClient.sendAppriseNotification(
         notificationBody,
         notificationTitle || undefined,
         notificationType || undefined
       );
-      setSendResults(prev => new Map(prev).set(serviceId, result));
+      setSendResults(prev => new Map(prev).set(serviceName, result));
       
       if (!result.success) {
         const errorMsg = result.details 
           ? `${result.message}: ${result.details}`
           : result.message;
-        setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: errorMsg, details: result.details }));
+        setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: errorMsg, details: result.details }));
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to send notification';
-      setSendResults(prev => new Map(prev).set(serviceId, {
+      setSendResults(prev => new Map(prev).set(serviceName, {
         success: false,
         message: errorMsg,
       }));
     } finally {
       setSendingServices(prev => {
         const newSet = new Set(prev);
-        newSet.delete(serviceId);
+        newSet.delete(serviceName);
         return newSet;
       });
     }
   };
 
-  const handleTestService = async (serviceId: number) => {
-    setSendingServices(prev => new Set(prev).add(serviceId));
+  const handleTestService = async (serviceName: string) => {
+    setSendingServices(prev => new Set(prev).add(serviceName));
     try {
-      const result = await apiClient.testAppriseServiceById(serviceId);
-      setSendResults(prev => new Map(prev).set(serviceId, result));
+      const result = await apiClient.testAppriseServiceByName(serviceName);
+      setSendResults(prev => new Map(prev).set(serviceName, result));
       if (!result.success) {
-        setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: result.message, details: result.details }));
+        setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: result.message, details: result.details }));
       }
     } catch (err: any) {
-      setSendResults(prev => new Map(prev).set(serviceId, { success: false, message: err.response?.data?.detail || err.message }));
+      setSendResults(prev => new Map(prev).set(serviceName, { success: false, message: err.response?.data?.detail || err.message }));
     } finally {
       setSendingServices(prev => {
         const newSet = new Set(prev);
-        newSet.delete(serviceId);
+        newSet.delete(serviceName);
         return newSet;
       });
-    }
-  };
-
-  const handleEditService = async (serviceId: number) => {
-    try {
-      const service = await apiClient.getAppriseService(serviceId);
-      setEditingService(service);
-      setEditName(service.name);
-      setEditDescription(service.description || '');
-      setEditUrl(service.url);
-      setEditEnabled(service.enabled);
-      setEditError(null);
-      setEditModalOpen(true);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load service');
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingService) return;
-    if (!editName.trim()) {
-      setEditError('Service name is required');
-      return;
-    }
-
-    setSaving(true);
-    setEditError(null);
-    try {
-      const update: AppriseServiceUpdate = {
-        name: editName.trim(),
-        description: editDescription.trim() || null,
-        url: editUrl.trim(),
-        enabled: editEnabled,
-      };
-      await apiClient.updateAppriseService(editingService.id, update);
-      setEditModalOpen(false);
-      await fetchAppriseStatus();
-    } catch (err: any) {
-      setEditError(err.response?.data?.detail || err.message || 'Failed to update service');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteService = async (serviceId: number) => {
-    if (!confirm('Are you sure you want to delete this service? This action cannot be undone.')) {
-      return;
-    }
-    try {
-      await apiClient.deleteAppriseService(serviceId);
-      await fetchAppriseStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to delete service');
     }
   };
 
@@ -339,11 +279,12 @@ export function Apprise() {
                   </Table.Head>
                   <Table.Body className="divide-y">
                     {services.map((service) => {
-                      const isSending = sendingServices.has(service.id);
-                      const sendResult = sendResults.get(service.id);
+                      const serviceName = service.originalName;
+                      const isSending = sendingServices.has(serviceName);
+                      const sendResult = sendResults.get(serviceName);
                       
                       return (
-                        <Table.Row key={service.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                        <Table.Row key={serviceName} className="bg-white dark:border-gray-700 dark:bg-gray-800">
                           <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                             {service.name}
                           </Table.Cell>
@@ -360,34 +301,20 @@ export function Apprise() {
                               <Button
                                 size="xs"
                                 color="blue"
-                                onClick={() => handleSendToService(service.id)}
-                                disabled={isSending || !notificationBody.trim() || !service.enabled}
+                                onClick={() => handleSendToService((service as any).originalName || service.name)}
+                                disabled={sendingServices.has((service as any).originalName || service.name) || !notificationBody.trim() || !service.enabled}
                               >
-                                {isSending ? 'Sending...' : sendResult?.success ? 'Send Again' : 'Send'}
+                                {sendingServices.has((service as any).originalName || service.name) ? 'Sending...' : sendResults.get((service as any).originalName || service.name)?.success ? 'Send Again' : 'Send'}
                               </Button>
                               <Button
                                 size="xs"
                                 color="gray"
-                                onClick={() => handleTestService(service.id)}
-                                disabled={!service.enabled}
+                                onClick={() => handleTestService((service as any).originalName || service.name)}
+                                disabled={sendingServices.has((service as any).originalName || service.name) || !service.enabled}
                               >
                                 Test
                               </Button>
-                              <Button
-                                size="xs"
-                                color="gray"
-                                onClick={() => handleEditService(service.id)}
-                              >
-                                <HiPencil className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="xs"
-                                color="failure"
-                                onClick={() => handleDeleteService(service.id)}
-                                disabled={!service.enabled}
-                              >
-                                <HiTrash className="w-4 h-4" />
-                              </Button>
+                              {/* Edit and Delete disabled for config services - manage in Settings */}
                             </div>
                           </Table.Cell>
                         </Table.Row>
@@ -487,71 +414,6 @@ export function Apprise() {
               </Modal.Body>
             </Modal>
 
-            {/* Edit Service Modal */}
-            <Modal show={editModalOpen} onClose={() => setEditModalOpen(false)} size="lg">
-              <Modal.Header>Edit Apprise Service</Modal.Header>
-              <Modal.Body className="max-h-[70vh] overflow-y-auto">
-                <div className="space-y-4">
-                  {editError && (
-                    <Alert color="failure">
-                      {editError}
-                    </Alert>
-                  )}
-                  <div>
-                    <Label htmlFor="editName" value="Service Name *" />
-                    <TextInput
-                      id="editName"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      required
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="editDescription" value="Description (optional)" />
-                    <Textarea
-                      id="editDescription"
-                      value={editDescription}
-                      onChange={(e) => setEditDescription(e.target.value)}
-                      rows={3}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="editUrl" value="Service URL *" />
-                    <TextInput
-                      id="editUrl"
-                      value={editUrl}
-                      onChange={(e) => setEditUrl(e.target.value)}
-                      required
-                      className="mt-1 font-mono text-sm"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="editEnabled"
-                      checked={editEnabled}
-                      onChange={(e) => setEditEnabled(e.target.checked)}
-                      className="w-4 h-4"
-                    />
-                    <Label htmlFor="editEnabled" value="Enabled" />
-                  </div>
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  color="blue"
-                  onClick={handleSaveEdit}
-                  disabled={saving || !editName.trim() || !editUrl.trim()}
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </Button>
-                <Button color="gray" onClick={() => setEditModalOpen(false)}>
-                  Cancel
-                </Button>
-              </Modal.Footer>
-            </Modal>
           </div>
         </main>
       </div>

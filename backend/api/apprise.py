@@ -10,17 +10,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
 from ..database import AsyncSessionLocal, AppriseServiceDB, get_db
-from ..models import AppriseService, AppriseServiceCreate, AppriseServiceUpdate, AppriseServiceInfo
+from ..models import (
+    AppriseService,
+    AppriseServiceCreate,
+    AppriseServiceUpdate,
+    AppriseServiceInfo,
+    AppriseStatus,
+    NotificationResponse,
+)
 from ..utils.apprise import (
     is_apprise_enabled,
     send_notification,
     send_notification_async,
     get_configured_services,
     get_raw_service_urls,
+    get_raw_service_urls_from_config,
     load_apprise_config,
     test_service,
     url_encode_password_in_url
 )
+from ..utils.apprise_parser import parse_apprise_nix_file
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +50,6 @@ class NotificationRequest(BaseModel):
         None,
         description="Notification type: info, success, warning, or failure"
     )
-
-
-class NotificationResponse(BaseModel):
-    """Response model for notification requests"""
-    success: bool
-    message: str
-    details: Optional[str] = None
 
 
 class ServiceInfo(BaseModel):
@@ -121,28 +123,51 @@ async def send_notification_endpoint(
 
 @router.get("/services", response_model=List[AppriseServiceInfo])
 async def get_services(
-    _: str = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    _: str = Depends(get_current_user)
 ) -> List[AppriseServiceInfo]:
-    """Get list of configured notification services from database
+    """Get list of configured notification services from NixOS config
     
     Returns:
         List of service info (id, name, description) - no URLs exposed
+        Note: id is a hash of the service name for config-based services
     """
     if not is_apprise_enabled():
         return []
     
-    result = await db.execute(
-        select(AppriseServiceDB).where(AppriseServiceDB.enabled == True).order_by(AppriseServiceDB.name)
-    )
-    services = result.scalars().all()
-    
-    return [AppriseServiceInfo(
-        id=service.id,
-        name=service.name,
-        description=service.description,
-        enabled=service.enabled
-    ) for service in services]
+    try:
+        config = parse_apprise_nix_file()
+        if not config:
+            return []
+        
+        services = []
+        # Service name mapping for display
+        name_map = {
+            'homeAssistant': 'Home Assistant',
+            'telegram': 'Telegram',
+            'discord': 'Discord',
+            'slack': 'Slack',
+            'email': 'Email',
+            'ntfy': 'ntfy'
+        }
+        
+        for service_name, service_config in config.get('services', {}).items():
+            if service_config.get('enable', False):
+                # Use hash of service name as numeric ID for compatibility
+                # Frontend will handle string IDs separately
+                service_id = hash(service_name) % (2**31)  # Keep within int32 range
+                display_name = name_map.get(service_name, service_name[0].upper() + service_name[1:])
+                
+                services.append(AppriseServiceInfo(
+                    id=service_id,
+                    name=display_name,
+                    description=None,
+                    enabled=True
+                ))
+        
+        return services
+    except Exception as e:
+        logger.error(f"Error fetching config services: {e}", exc_info=True)
+        return []
 
 
 @router.post("/send/{service_index}", response_model=NotificationResponse)
@@ -171,7 +196,7 @@ async def send_to_service_endpoint(
             )
         
         logger.debug("Fetching configured services")
-        services = get_raw_service_urls()
+        services = await get_raw_service_urls_from_config()
         logger.debug(f"Found {len(services)} configured services")
         
         if service_index < 0 or service_index >= len(services):
@@ -248,7 +273,7 @@ async def test_service_endpoint(
             )
         
         logger.debug("Fetching configured services")
-        services = get_raw_service_urls()
+        services = await get_raw_service_urls_from_config()
         logger.debug(f"Found {len(services)} configured services")
         
         if service_index < 0 or service_index >= len(services):

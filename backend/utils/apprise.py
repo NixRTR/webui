@@ -672,6 +672,47 @@ async def get_raw_service_urls_from_db(session) -> List[dict]:
     return services
 
 
+async def get_raw_service_urls_from_config(config_path: Optional[str] = None) -> List[dict]:
+    """Get list of raw (unmasked) service URLs with descriptions from config file (async-safe)
+    
+    Args:
+        config_path: Optional path to apprise config file
+        
+    Returns:
+        List of dicts with 'url' and 'description' keys
+    """
+    import asyncio
+    
+    if config_path is None:
+        config_path = os.getenv('APPRISE_CONFIG_FILE', DEFAULT_APPRISE_CONFIG)
+    
+    # Use asyncio.to_thread to run file I/O in a thread pool to avoid blocking
+    def _read_config():
+        services = []
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Parse description|url format
+                        if '|' in line:
+                            description, url = line.split('|', 1)
+                            description = description.strip()
+                            url = url.strip()
+                        else:
+                            # Backward compatibility: extract service name from URL
+                            url = line
+                            description = get_service_name_from_url(url)
+                        
+                        services.append({
+                            'url': url,  # Unmasked URL
+                            'description': description
+                        })
+        return services
+    
+    return await asyncio.to_thread(_read_config)
+
+
 def get_raw_service_urls(config_path: Optional[str] = None) -> List[dict]:
     """Get list of raw (unmasked) service URLs with descriptions (legacy - uses database)
     

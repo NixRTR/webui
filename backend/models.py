@@ -520,6 +520,18 @@ class AppriseServiceInfo(BaseModel):
         from_attributes = True
 
 
+class AppriseStatus(BaseModel):
+    """Apprise enabled/disabled status"""
+    enabled: bool
+
+
+class NotificationResponse(BaseModel):
+    """Response model for notification requests"""
+    success: bool
+    message: str
+    details: Optional[str] = None
+
+
 # DNS Models
 
 class DnsZoneBase(BaseModel):

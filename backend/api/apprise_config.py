@@ -6,8 +6,8 @@ from typing import Optional, Dict, Any
 import logging
 from pydantic import BaseModel
 
-from ..api.auth import get_current_user
-from ..models import AppriseConfig, AppriseConfigUpdate, AppriseServiceConfig
+from ..auth import get_current_user
+from ..models import AppriseConfig, AppriseConfigUpdate, AppriseServiceConfig, NotificationResponse
 from ..utils.apprise_parser import parse_apprise_nix_file
 from ..utils.nix_writer import write_apprise_nix_file
 from ..utils.config_writer import write_apprise_nix_config
@@ -16,13 +16,6 @@ from ..utils.apprise import test_service, is_apprise_enabled, is_apprise_enabled
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/apprise", tags=["apprise-config"])
-
-
-class NotificationResponse(BaseModel):
-    """Response model for notification requests"""
-    success: bool
-    message: str
-    details: Optional[str] = None
 
 
 @router.get("/config", response_model=AppriseConfig)
