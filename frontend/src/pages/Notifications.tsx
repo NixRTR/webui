@@ -28,7 +28,6 @@ import type {
   ComparisonOperator,
   AppriseServiceInfoConfig,
 } from '../types/notifications';
-import type { AppriseConfig } from '../types/apprise-config';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
 import { transformConfigServices } from '../utils/apprise';
 

@@ -10,9 +10,8 @@ import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiBell, HiCheckCircle, HiXCircle, HiInformationCircle } from 'react-icons/hi';
 import { AppriseUrlGenerator } from '../components/AppriseUrlGenerator';
-import type { AppriseServiceInfoConfig } from '../types/notifications';
-import type { AppriseConfig } from '../types/apprise-config';
 import { transformConfigServices } from '../utils/apprise';
+import type { AppriseServiceInfoConfig } from '../types/notifications';
 
 export function Apprise() {
   const token = localStorage.getItem('access_token');
@@ -20,7 +19,7 @@ export function Apprise() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [services, setServices] = useState<Array<AppriseServiceInfo & { id: string; originalName: string }>>([]);
+  const [services, setServices] = useState<AppriseServiceInfoConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [urlGeneratorModalOpen, setUrlGeneratorModalOpen] = useState(false);
@@ -32,9 +31,9 @@ export function Apprise() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
   
-  // Send notification state - track status per service index
-  const [sendingServices, setSendingServices] = useState<Set<number>>(new Set());
-  const [sendResults, setSendResults] = useState<Map<number, { success: boolean; message: string; details?: string }>>(new Map());
+  // Send notification state - track status per service name
+  const [sendingServices, setSendingServices] = useState<Set<string>>(new Set());
+  const [sendResults, setSendResults] = useState<Map<string, { success: boolean; message: string; details?: string }>>(new Map());
   
   const { connectionStatus } = useMetrics(token);
 
@@ -301,16 +300,16 @@ export function Apprise() {
                               <Button
                                 size="xs"
                                 color="blue"
-                                onClick={() => handleSendToService((service as any).originalName || service.name)}
-                                disabled={sendingServices.has((service as any).originalName || service.name) || !notificationBody.trim() || !service.enabled}
+                                onClick={() => handleSendToService(serviceName)}
+                                disabled={isSending || !notificationBody.trim() || !service.enabled}
                               >
-                                {sendingServices.has((service as any).originalName || service.name) ? 'Sending...' : sendResults.get((service as any).originalName || service.name)?.success ? 'Send Again' : 'Send'}
+                                {isSending ? 'Sending...' : sendResult?.success ? 'Send Again' : 'Send'}
                               </Button>
                               <Button
                                 size="xs"
                                 color="gray"
-                                onClick={() => handleTestService((service as any).originalName || service.name)}
-                                disabled={sendingServices.has((service as any).originalName || service.name) || !service.enabled}
+                                onClick={() => handleTestService(serviceName)}
+                                disabled={isSending || !service.enabled}
                               >
                                 Test
                               </Button>
