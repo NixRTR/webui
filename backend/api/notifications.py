@@ -28,7 +28,7 @@ from ..collectors.notifications import (
     render_notification_template,
     determine_rule_level,
 )
-from ..utils.apprise import send_notification
+from ..utils.apprise import send_notification_with_indices_async
 from ..utils.redis_client import delete as redis_delete
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -253,7 +253,7 @@ async def test_rule(
 
     level = determine_rule_level(rule, value) or "info"
     message = render_notification_template(context, rule, value, level, measurement_ts)
-    success, error = send_notification(
+    success, error = await send_notification_with_indices_async(
         body=message,
         title=f"{rule.name} ({level.upper()})",
         notification_type=level,

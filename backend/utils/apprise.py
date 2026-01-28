@@ -428,11 +428,63 @@ def _load_apprise_config_from_file(config_path: Optional[str] = None) -> Apprise
     return apobj
 
 
+async def load_apprise_config_from_file_async() -> Apprise:
+    """Load Apprise configuration from config file (async-safe)
+    
+    Returns:
+        Apprise object configured with services from config file
+    """
+    import asyncio
+    
+    def _load():
+        return _load_apprise_config_from_file()
+    
+    return await asyncio.to_thread(_load)
+
+
+async def _build_apprise_for_service_indices(
+    service_indices: Optional[List[int]]
+) -> Tuple[Optional[Apprise], Optional[str]]:
+    """Return an Apprise instance filtered to selected services by config array indices
+    
+    Args:
+        service_indices: List of indices into the config services array (0-based)
+        
+    Returns:
+        Tuple of (Apprise instance, error message if any)
+    """
+    if service_indices is None or len(service_indices) == 0:
+        # Load all config services
+        apobj = await load_apprise_config_from_file_async()
+        return apobj, None
+    
+    # Get config services
+    services = await get_raw_service_urls_from_config()
+    if not services:
+        return None, "No notification services configured"
+    
+    apobj = Apprise()
+    for idx in service_indices:
+        if idx < 0 or idx >= len(services):
+            logger.warning(f"Service index {idx} out of range while building notification payload")
+            continue
+        url = services[idx]['url']
+        encoded_url = url_encode_password_in_url(url)
+        try:
+            apobj.add(encoded_url)
+        except Exception as exc:
+            logger.error(f"Failed to add service at index {idx}: {exc}")
+    
+    if len(apobj) == 0:
+        return None, "No valid services selected for notification"
+    return apobj, None
+
+
 async def _build_apprise_for_service_ids(
     session,
     service_ids: Optional[List[int]]
 ) -> Tuple[Optional[Apprise], Optional[str]]:
-    """Return an Apprise instance filtered to selected services by ID"""
+    """Return an Apprise instance filtered to selected services by ID (database services)"""
     from sqlalchemy import select
     from ..database import AppriseServiceDB
     
@@ -548,6 +600,60 @@ async def send_notification_async(
             
     except Exception as e:
         logger.error(f"Error in send_notification_async: {e}", exc_info=True)
+        return (False, str(e))
+
+
+async def send_notification_with_indices_async(
+    body: str,
+    title: Optional[str] = None,
+    notification_type: Optional[str] = None,
+    service_indices: Optional[List[int]] = None
+) -> Tuple[bool, Optional[str]]:
+    """Send notification using Apprise (async version using config service indices)
+    
+    Args:
+        body: Message body (required)
+        title: Optional message title
+        notification_type: Optional notification type (info, success, warning, failure)
+        service_indices: Optional list of service indices into config array (None = all enabled services)
+        
+    Returns:
+        Tuple of (success: bool, error_message: Optional[str])
+    """
+    try:
+        apobj, error = await _build_apprise_for_service_indices(service_indices)
+        if error:
+            return (False, error)
+        
+        # Check if any services are configured
+        if not apobj:
+            return (False, "No notification services configured")
+        
+        # Map notification type
+        apprise_type = None
+        if notification_type:
+            type_map = {
+                'info': 'info',
+                'success': 'success',
+                'warning': 'warning',
+                'failure': 'failure',
+            }
+            apprise_type = type_map.get(notification_type.lower())
+        
+        # Send notification
+        result = apobj.notify(
+            body=body,
+            title=title,
+            notify_type=apprise_type
+        )
+        
+        if result:
+            return (True, None)
+        else:
+            return (False, "Failed to send notification to all services")
+            
+    except Exception as e:
+        logger.error(f"Error in send_notification_with_indices_async: {e}", exc_info=True)
         return (False, str(e))
 
 
