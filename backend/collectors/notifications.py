@@ -348,9 +348,8 @@ def _service_status_enhanced_fetcher() -> ParameterFetcher:
                 "active_state": active_state or "unknown",
                 "sub_state": sub_state or "unknown",
                 "load_state": load_state or "unknown",
+                "log_snippet": log_snippet or "",  # Always include log_snippet, empty string if no logs
             }
-            if log_snippet:
-                context["log_snippet"] = log_snippet
             
             return float(state_value), context
             
