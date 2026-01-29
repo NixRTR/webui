@@ -6,14 +6,14 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..celery_app import celery_app
+from ..celery_app import app
 from ..database import AsyncSessionLocal, NetworkDeviceDB, DevicePortScanDB
 from ..workers.port_scanner import queue_port_scan
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name='backend.workers.port_scanner_periodic.scan_devices_periodic')
+@app.task(name='backend.workers.port_scanner_periodic.scan_devices_periodic')
 def scan_devices_periodic():
     """Periodic task to scan online devices
     

@@ -7,14 +7,14 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..celery_app import celery_app
+from ..celery_app import app
 from ..database import AsyncSessionLocal, DevicePortScanDB, DevicePortScanResultDB, NetworkDeviceDB
 from ..utils.port_scanner import scan_device_ports
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name='backend.workers.port_scanner.scan_device_ports_task', bind=True)
+@app.task(name='backend.workers.port_scanner.scan_device_ports_task', bind=True)
 def scan_device_ports_task(self, mac_address: str, ip_address: str):
     """Celery task to scan device ports using nmap
     
