@@ -42,9 +42,13 @@ async def get_redis_client() -> Optional[redis.Redis]:
             _redis_available = True
             logger.info(f"Connected to Redis at {settings.redis_host}:{settings.redis_port}")
         except Exception as e:
-            logger.warning(f"Redis unavailable, falling back to database: {e}")
             _redis_available = False
             _redis_client = None
+            # After Celery fork, a fresh connect can still hit a closed loop in some paths
+            if "Event loop is closed" not in str(e) and not (
+                isinstance(e, RuntimeError) and "Event loop" in str(e)
+            ):
+                logger.warning(f"Redis unavailable, falling back to database: {e}")
             return None
     
     # Test connection on each request (health check)
@@ -53,13 +57,19 @@ async def get_redis_client() -> Optional[redis.Redis]:
             await _redis_client.ping()
             return _redis_client
         except Exception as e:
-            logger.warning(f"Redis connection lost, falling back to database: {e}")
             _redis_available = False
             try:
                 await _redis_client.close()
             except Exception:
                 pass
             _redis_client = None
+            # After Celery fork, the cached client is tied to the parent's closed event loop.
+            # Retry once to create a new client on the current (task) event loop.
+            if "Event loop is closed" in str(e) or (
+                isinstance(e, RuntimeError) and "Event loop" in str(e)
+            ):
+                return await get_redis_client()
+            logger.warning(f"Redis connection lost, falling back to database: {e}")
             return None
     
     return None
