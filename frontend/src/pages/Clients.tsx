@@ -76,7 +76,7 @@ export function Clients() {
     }
   };
 
-  const triggerPortScan = async (macAddress: string, ipAddress: string) => {
+  const triggerPortScan = async (macAddress: string) => {
     if (!token) return;
     try {
       setLoadingPortScan(true);
@@ -132,7 +132,7 @@ export function Clients() {
           <Button 
             size="xs" 
             color="failure" 
-            onClick={() => triggerPortScan(device.mac_address, device.ip_address)}
+            onClick={() => triggerPortScan(device.mac_address)}
           >
             Ports (Failed)
           </Button>
@@ -149,7 +149,7 @@ export function Clients() {
             if (isCompleted) {
               fetchPortScan(device.mac_address);
             } else {
-              triggerPortScan(device.mac_address, device.ip_address);
+              triggerPortScan(device.mac_address);
             }
           }}
         >
@@ -948,7 +948,7 @@ export function Clients() {
                       color="gray"
                       onClick={() => {
                         if (selectedDevicePorts) {
-                          triggerPortScan(selectedDevicePorts.mac_address, selectedDevicePorts.ip_address);
+                          triggerPortScan(selectedDevicePorts.mac_address);
                         }
                       }}
                     >
@@ -1020,7 +1020,7 @@ export function Clients() {
                           d.mac_address.toLowerCase() === selectedDeviceMac.toLowerCase() && d.is_online
                         );
                         if (device) {
-                          await triggerPortScan(device.mac_address, device.ip_address);
+                          await triggerPortScan(device.mac_address);
                         } else {
                           setPortScanModalOpen(false);
                         }
