@@ -26,6 +26,16 @@ worker_prefetch_multiplier = 4
 worker_max_tasks_per_child = 1000  # Restart worker after N tasks to prevent memory leaks
 worker_disable_rate_limits = False
 
+# Modules to import so workers register all tasks (autodiscover looks for .tasks submodule we don't use)
+include = [
+    "backend.workers.aggregation",
+    "backend.workers.notifications",
+    "backend.workers.redis_buffer",
+    "backend.workers.history_cleanup",
+    "backend.workers.port_scanner",
+    "backend.workers.port_scanner_periodic",
+]
+
 # Task routing: sequential (one at a time) vs parallel (concurrent)
 task_routes = {
     # Sequential: one at a time (concurrency=1 worker)
