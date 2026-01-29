@@ -82,8 +82,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const isConfigActive = isParentActive('/settings', configChildren) || 
                          isActive('/dns') || 
                          isActive('/dhcp') ||
-                         isActive('/traffic-shaping') ||
-                         isActive('/notifications');
+                         isActive('/traffic-shaping');
   useEffect(() => {
     if (isConfigActive) {
       setConfigExpanded(true);
