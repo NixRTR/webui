@@ -5,7 +5,7 @@ Periodically evaluates notification rules and sends alerts when thresholds are e
 import asyncio
 import logging
 from ..celery_app import app
-from ..database import AsyncSessionLocal
+from ..database import with_worker_session_factory
 from ..collectors.notifications import NotificationEvaluator
 
 logger = logging.getLogger(__name__)
@@ -22,12 +22,16 @@ def evaluate_notifications_task(self):
     
     This task evaluates all enabled notification rules and sends alerts.
     Scheduled every 30 seconds via Celery Beat.
+    Uses a fresh async engine/session per run to avoid 'Future attached to a different loop' after fork.
     """
     try:
         logger.debug("Starting notification evaluation task...")
-        # Create evaluator and run evaluation
-        evaluator = NotificationEvaluator(AsyncSessionLocal)
-        asyncio.run(evaluator.evaluate_all())
+
+        async def _run(session_factory):
+            evaluator = NotificationEvaluator(session_factory)
+            await evaluator.evaluate_all()
+
+        asyncio.run(with_worker_session_factory(_run))
         logger.debug("Notification evaluation task completed successfully")
     except Exception as exc:
         logger.error(

@@ -4,16 +4,17 @@ Aggregates raw data into 1m, 5m, 1h, and 1d intervals to reduce storage
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal, ClientBandwidthStatsDB, ClientConnectionStatsDB
 
 
-async def aggregate_client_bandwidth_stats():
+async def aggregate_client_bandwidth_stats(session_factory: Any = None):
     """Aggregate client bandwidth stats according to tiered retention strategy"""
-    async with AsyncSessionLocal() as session:
+    sf = session_factory or AsyncSessionLocal
+    async with sf() as session:
         now = datetime.now(timezone.utc)
         
         # 1. Aggregate raw → 1-minute: Data older than 2 days
@@ -75,9 +76,10 @@ async def aggregate_client_bandwidth_stats():
         await session.commit()
 
 
-async def aggregate_client_connection_stats():
+async def aggregate_client_connection_stats(session_factory: Any = None):
     """Aggregate client connection stats according to tiered retention strategy"""
-    async with AsyncSessionLocal() as session:
+    sf = session_factory or AsyncSessionLocal
+    async with sf() as session:
         now = datetime.now(timezone.utc)
         
         # 1. Aggregate raw → 1-minute: Data older than 2 days
@@ -260,12 +262,15 @@ async def _aggregate_to_interval(
     await session.commit()
 
 
-async def run_aggregation_job():
-    """Run the daily aggregation job"""
+async def run_aggregation_job(session_factory: Any = None):
+    """Run the daily aggregation job.
+    When called from a Celery worker, pass a session_factory from with_worker_session_factory
+    to avoid 'Future attached to a different loop' errors."""
     try:
         print("Starting data aggregation job...")
-        await aggregate_client_bandwidth_stats()
-        await aggregate_client_connection_stats()
+        sf = session_factory or AsyncSessionLocal
+        await aggregate_client_bandwidth_stats(sf)
+        await aggregate_client_connection_stats(sf)
         print("Data aggregation job completed successfully")
     except Exception as e:
         print(f"Error in aggregation job: {e}")

@@ -7,14 +7,14 @@ import asyncio
 import logging
 from sqlalchemy import text
 from ..celery_app import app
-from ..database import AsyncSessionLocal
+from ..database import with_worker_session_factory
 
 logger = logging.getLogger(__name__)
 
 
-async def cleanup_history():
+async def cleanup_history(session_factory):
     """Clean up DNS and DHCP configuration history based on retention policy"""
-    async with AsyncSessionLocal() as session:
+    async with session_factory() as session:
         try:
             # Call the cleanup functions from the migration
             result_dns = await session.execute(text("SELECT cleanup_dns_config_history()"))
@@ -43,11 +43,11 @@ def cleanup_history_task(self):
     
     This task runs the async history cleanup job in an event loop.
     Scheduled daily at 3 AM UTC via Celery Beat.
+    Uses a fresh async engine/session per run to avoid 'Future attached to a different loop' after fork.
     """
     try:
         logger.info("Starting history cleanup task...")
-        # Run the async cleanup job
-        asyncio.run(cleanup_history())
+        asyncio.run(with_worker_session_factory(cleanup_history))
         logger.info("History cleanup task completed successfully")
     except Exception as exc:
         logger.error(f"Error in history cleanup task: {exc}", exc_info=True)

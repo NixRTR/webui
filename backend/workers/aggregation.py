@@ -24,8 +24,10 @@ def run_aggregation_job_task(self):
     """
     try:
         logger.info("Starting aggregation job task...")
-        # Run the async aggregation job
-        asyncio.run(run_aggregation_job())
+        from ..database import with_worker_session_factory
+        async def _run(session_factory):
+            await run_aggregation_job(session_factory)
+        asyncio.run(with_worker_session_factory(_run))
         logger.info("Aggregation job task completed successfully")
     except Exception as exc:
         logger.error(f"Error in aggregation job task: {exc}", exc_info=True)

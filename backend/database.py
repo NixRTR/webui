@@ -532,6 +532,30 @@ class DhcpConfigHistoryDB(Base):
         Index('idx_dhcp_config_history_status', 'status', postgresql_using='btree'),
     )
 
+async def with_worker_session_factory(async_fn):
+    """Create a fresh async engine and session factory in the current event loop,
+    run async_fn(session_factory), then dispose. Use in Celery workers to avoid
+    'Future attached to a different loop' errors after fork."""
+    worker_engine = create_async_engine(
+        settings.database_url,
+        echo=False,
+        pool_size=2,
+        max_overflow=5,
+        pool_pre_ping=True,
+    )
+    WorkerSessionLocal = async_sessionmaker(
+        worker_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+    try:
+        return await async_fn(WorkerSessionLocal)
+    finally:
+        await worker_engine.dispose()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for getting async database session"""
     async with AsyncSessionLocal() as session:

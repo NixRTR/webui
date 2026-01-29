@@ -7,7 +7,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..celery_app import app
-from ..database import AsyncSessionLocal, NetworkDeviceDB, DevicePortScanDB
+from ..database import with_worker_session_factory, NetworkDeviceDB, DevicePortScanDB
 from ..workers.port_scanner import queue_port_scan
 
 logger = logging.getLogger(__name__)
@@ -22,9 +22,9 @@ def scan_devices_periodic():
     - Last scan was completed more than 30 minutes ago
     """
     logger.info("Starting periodic device port scan")
-    
-    async def _run_periodic_scan():
-        async with AsyncSessionLocal() as session:
+
+    async def _run_periodic_scan(session_factory):
+        async with session_factory() as session:
             # Get all online devices
             result = await session.execute(
                 select(NetworkDeviceDB).where(
@@ -99,6 +99,6 @@ def scan_devices_periodic():
                 'total': len(online_devices)
             }
     
-    # Run async function using asyncio
+    # Run async function with a fresh engine/session (avoids "attached to a different loop" after fork)
     import asyncio
-    return asyncio.run(_run_periodic_scan())
+    return asyncio.run(with_worker_session_factory(_run_periodic_scan))

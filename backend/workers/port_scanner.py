@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..celery_app import app
-from ..database import AsyncSessionLocal, DevicePortScanDB, DevicePortScanResultDB, NetworkDeviceDB
+from ..database import (
+    with_worker_session_factory,
+    AsyncSessionLocal,
+    DevicePortScanDB,
+    DevicePortScanResultDB,
+    NetworkDeviceDB,
+)
 from ..utils.port_scanner import scan_device_ports
 
 logger = logging.getLogger(__name__)
@@ -26,9 +32,9 @@ def scan_device_ports_task(self, mac_address: str, ip_address: str):
         dict with scan results
     """
     logger.info(f"Starting port scan task for device {mac_address} at {ip_address}")
-    
-    async def _run_scan():
-        async with AsyncSessionLocal() as session:
+
+    async def _run_scan(session_factory):
+        async with session_factory() as session:
             # Check if there's already an in-progress scan for this device
             result = await session.execute(
                 select(DevicePortScanDB).where(
@@ -66,7 +72,7 @@ def scan_device_ports_task(self, mac_address: str, ip_address: str):
                 scan_result = scan_device_ports(ip_address, mac_address, timeout=300)
                 
                 # Update scan record with results
-                async with AsyncSessionLocal() as update_session:
+                async with session_factory() as update_session:
                     scan_record = await update_session.get(DevicePortScanDB, scan_id)
                     if not scan_record:
                         logger.error(f"Scan record {scan_id} not found after scan completion")
@@ -121,7 +127,7 @@ def scan_device_ports_task(self, mac_address: str, ip_address: str):
                 logger.error(f"Exception during port scan for {mac_address}: {e}", exc_info=True)
                 
                 # Update scan record with error
-                async with AsyncSessionLocal() as error_session:
+                async with session_factory() as error_session:
                     scan_record = await error_session.get(DevicePortScanDB, scan_id)
                     if scan_record:
                         scan_record.scan_status = 'failed'
@@ -131,9 +137,9 @@ def scan_device_ports_task(self, mac_address: str, ip_address: str):
                 
                 return {'status': 'error', 'error': str(e)}
     
-    # Run async function using asyncio
+    # Run async function with a fresh engine/session (avoids "attached to a different loop" after fork)
     import asyncio
-    return asyncio.run(_run_scan())
+    return asyncio.run(with_worker_session_factory(_run_scan))
 
 
 async def queue_port_scan(mac_address: str, ip_address: str) -> bool:
