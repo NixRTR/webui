@@ -15,7 +15,7 @@ import os
 
 from ..auth import get_current_user
 from ..collectors.network_devices import discover_network_devices, get_device_count_by_network
-from ..collectors.dhcp import parse_dnsmasq_leases
+from ..collectors.dhcp import parse_dnsmasq_leases, trigger_new_device_scans
 from ..database import AsyncSessionLocal, DeviceOverrideDB, NetworkDeviceDB, DevicePortScanDB, DevicePortScanResultDB
 from ..utils.redis_client import delete as redis_delete
 from ..workers.port_scanner import queue_port_scan
@@ -82,6 +82,12 @@ async def get_all_devices(
     """
     dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
+
+    # Trigger port scans for newly discovered devices from DHCP leases
+    try:
+        await trigger_new_device_scans(dhcp_leases)
+    except Exception as e:
+        logger.warning(f"Failed to trigger new device scans from DHCP: {e}")
 
     # Filter to IPv4 only
     devices = [d for d in devices if _is_ipv4(d.ip_address)]
@@ -193,27 +199,16 @@ async def get_all_devices(
     enriched = list(devices_by_mac.values())
 
     # Trigger port scans for newly discovered online devices
-    # Check database for existing devices and trigger scans for new ones
-    async with AsyncSessionLocal() as session:
-        db_macs_result = await session.execute(
-            select(NetworkDeviceDB.mac_address).where(
-                or_(
-                    cast(NetworkDeviceDB.ip_address, String).like('192.168.2.%'),
-                    cast(NetworkDeviceDB.ip_address, String).like('192.168.3.%')
-                )
-            )
-        )
-        db_macs = {str(mac).lower() for mac in db_macs_result.scalars().all()}
-        
-        # Trigger scans for new online devices (not in database)
-        for device in enriched:
-            if device.is_online and device.mac_address.lower() not in db_macs:
-                # New device discovered - queue port scan
-                try:
-                    await queue_port_scan(device.mac_address, device.ip_address)
-                    logger.info(f"Triggered port scan for newly discovered device {device.mac_address}")
-                except Exception as e:
-                    logger.warning(f"Failed to queue port scan for new device {device.mac_address}: {e}")
+    from ..workers.port_scanner import queue_new_device_scan
+
+    for device in enriched:
+        if device.is_online:
+            try:
+                queued = await queue_new_device_scan(device.mac_address, device.ip_address)
+                if queued:
+                    logger.info(f"Queued scan for newly discovered device {device.mac_address}")
+            except Exception as e:
+                logger.warning(f"Failed to queue scan for new device {device.mac_address}: {e}")
 
     # Sort: favorites first, then by nickname/hostname
     enriched.sort(key=lambda d: (not d.favorite, (d.nickname or d.hostname or "").lower()))

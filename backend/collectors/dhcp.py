@@ -100,6 +100,30 @@ def parse_dnsmasq_leases() -> List[DHCPLease]:
     return list(leases_dict.values())
 
 
+async def trigger_new_device_scans(leases: List[DHCPLease]) -> None:
+    """Trigger port scans for newly discovered devices from DHCP leases
+
+    Args:
+        leases: List of DHCP leases to check
+    """
+    import logging
+    from ..workers.port_scanner import queue_new_device_scan
+
+    logger = logging.getLogger(__name__)
+
+    for lease in leases:
+        try:
+            queued = await queue_new_device_scan(lease.mac_address, lease.ip_address)
+            if queued:
+                logger.info(
+                    f"Queued scan for DHCP device {lease.mac_address} ({lease.hostname})"
+                )
+        except Exception as e:
+            logger.warning(
+                f"Failed to queue scan for DHCP device {lease.mac_address}: {e}"
+            )
+
+
 def get_client_count_by_network() -> dict[str, int]:
     """Get count of DHCP clients by network
     

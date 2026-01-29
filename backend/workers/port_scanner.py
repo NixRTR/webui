@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..celery_app import app
 from ..database import (
@@ -20,19 +20,8 @@ from ..utils.port_scanner import scan_device_ports
 logger = logging.getLogger(__name__)
 
 
-@app.task(name='backend.workers.port_scanner.scan_device_ports_task', bind=True)
-def scan_device_ports_task(self, mac_address: str, ip_address: str):
-    """Celery task to scan device ports using nmap
-    
-    Args:
-        mac_address: Device MAC address
-        ip_address: Device IP address to scan
-    
-    Returns:
-        dict with scan results
-    """
-    logger.info(f"Starting port scan task for device {mac_address} at {ip_address}")
-
+def _make_run_scan(mac_address: str, ip_address: str):
+    """Build async scan runner (shared by scan_device_ports_task and scan_new_device_ports_task)."""
     async def _run_scan(session_factory):
         async with session_factory() as session:
             # Check if there's already an in-progress scan for this device
@@ -136,23 +125,64 @@ def scan_device_ports_task(self, mac_address: str, ip_address: str):
                         await error_session.commit()
                 
                 return {'status': 'error', 'error': str(e)}
+        return _run_scan
+
+
+@app.task(name='backend.workers.port_scanner.scan_device_ports_task', bind=True)
+def scan_device_ports_task(self, mac_address: str, ip_address: str):
+    """Celery task to scan device ports using nmap
     
-    # Run async function with a fresh engine/session (avoids "attached to a different loop" after fork)
+    Args:
+        mac_address: Device MAC address
+        ip_address: Device IP address to scan
+    
+    Returns:
+        dict with scan results
+    """
+    logger.info(f"Starting port scan task for device {mac_address} at {ip_address}")
+    return _run_port_scan(mac_address, ip_address)
+
+
+@app.task(name='backend.workers.port_scanner.scan_new_device_ports', bind=True)
+def scan_new_device_ports_task(self, mac_address: str, ip_address: str):
+    """Celery task to scan newly discovered device ports (sequential processing)
+    
+    This task is routed to the 'new_device_scans' queue which processes one device at a time.
+    
+    Args:
+        mac_address: Device MAC address
+        ip_address: Device IP address to scan
+    
+    Returns:
+        dict with scan results
+    """
+    logger.info(f"Starting NEW device port scan for {mac_address} at {ip_address}")
+    return _run_port_scan(mac_address, ip_address)
+
+
+def _run_port_scan(mac_address: str, ip_address: str):
+    """Execute port scan with fresh worker session (shared by both scan tasks)."""
     import asyncio
-    return asyncio.run(with_worker_session_factory(_run_scan))
+    return asyncio.run(with_worker_session_factory(_make_run_scan(mac_address, ip_address)))
 
 
-async def queue_port_scan(mac_address: str, ip_address: str) -> bool:
+async def queue_port_scan(
+    mac_address: str,
+    ip_address: str,
+    session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+) -> bool:
     """Queue a port scan task for a device
     
     Args:
         mac_address: Device MAC address
         ip_address: Device IP address
+        session_factory: Optional session factory (for worker context)
     
     Returns:
         bool: True if scan was queued, False if already in progress
     """
-    async with AsyncSessionLocal() as session:
+    factory = session_factory or AsyncSessionLocal
+    async with factory() as session:
         # Check if there's already a pending or in-progress scan
         result = await session.execute(
             select(DevicePortScanDB).where(
@@ -191,4 +221,64 @@ async def queue_port_scan(mac_address: str, ip_address: str) -> bool:
         # Queue the Celery task
         scan_device_ports_task.delay(mac_address, ip_address)
         logger.info(f"Queued port scan for device {mac_address} at {ip_address}")
+        return True
+
+
+async def queue_new_device_scan(
+    mac_address: str,
+    ip_address: str,
+    session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+) -> bool:
+    """Queue a port scan for a newly discovered device (if never scanned before)
+
+    Args:
+        mac_address: Device MAC address
+        ip_address: Device IP address
+        session_factory: Optional session factory (for worker context)
+
+    Returns:
+        bool: True if scan was queued, False if already scanned or in progress
+    """
+    factory = session_factory or AsyncSessionLocal
+    async with factory() as session:
+        # Check if device has EVER been scanned (any status)
+        result = await session.execute(
+            select(DevicePortScanDB).where(
+                DevicePortScanDB.mac_address == mac_address
+            )
+        )
+        any_scan = result.scalars().first()
+
+        if any_scan:
+            logger.debug(
+                f"Device {mac_address} already has scan history, skipping new device scan"
+            )
+            return False
+
+        # Check if there's already a pending or in-progress scan
+        pending_result = await session.execute(
+            select(DevicePortScanDB).where(
+                DevicePortScanDB.mac_address == mac_address,
+                DevicePortScanDB.scan_status.in_(['pending', 'in_progress'])
+            )
+        )
+        pending_scan = pending_result.scalar_one_or_none()
+
+        if pending_scan:
+            logger.debug(f"Port scan already queued/in-progress for {mac_address}")
+            return False
+
+        # Create pending scan record
+        scan_record = DevicePortScanDB(
+            mac_address=mac_address,
+            ip_address=ip_address,
+            scan_status='pending',
+            scan_started_at=datetime.now(timezone.utc)
+        )
+        session.add(scan_record)
+        await session.commit()
+
+        # Queue to the NEW DEVICE scan task (sequential queue)
+        scan_new_device_ports_task.delay(mac_address, ip_address)
+        logger.info(f"Queued NEW device port scan for {mac_address} at {ip_address}")
         return True

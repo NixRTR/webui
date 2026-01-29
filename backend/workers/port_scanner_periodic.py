@@ -81,7 +81,11 @@ def scan_devices_periodic():
                     
                     if not pending_scan:
                         # Queue the scan
-                        queued = await queue_port_scan(mac_address, ip_address)
+                        queued = await queue_port_scan(
+                            mac_address,
+                            ip_address,
+                            session_factory=session_factory
+                        )
                         if queued:
                             scanned_count += 1
                         else:

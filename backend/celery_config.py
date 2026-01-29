@@ -26,11 +26,17 @@ worker_prefetch_multiplier = 4
 worker_max_tasks_per_child = 1000  # Restart worker after N tasks to prevent memory leaks
 worker_disable_rate_limits = False
 
-# Task routing
+# Task routing: sequential (one at a time) vs parallel (concurrent)
 task_routes = {
-    'backend.workers.aggregation.run_aggregation_job': {'queue': 'aggregation'},
-    'backend.workers.notifications.evaluate_notifications': {'queue': 'notifications'},
-    'backend.workers.redis_buffer.flush_buffers': {'queue': 'buffer_flush'},
+    # Sequential: one at a time (concurrency=1 worker)
+    'backend.workers.port_scanner.scan_new_device_ports': {'queue': 'sequential'},
+    # Parallel: can run concurrently
+    'backend.workers.aggregation.run_aggregation_job': {'queue': 'parallel'},
+    'backend.workers.notifications.evaluate_notifications': {'queue': 'parallel'},
+    'backend.workers.redis_buffer.flush_buffers': {'queue': 'parallel'},
+    'backend.workers.port_scanner_periodic.scan_devices_periodic': {'queue': 'parallel'},
+    'backend.workers.history_cleanup.cleanup_history_task': {'queue': 'parallel'},
+    'backend.workers.port_scanner.scan_device_ports_task': {'queue': 'parallel'},
 }
 
 # Task retry settings
