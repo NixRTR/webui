@@ -16,8 +16,12 @@ import os
 from ..auth import get_current_user
 from ..collectors.network_devices import discover_network_devices, get_device_count_by_network
 from ..collectors.dhcp import parse_dnsmasq_leases
-from ..database import AsyncSessionLocal, DeviceOverrideDB, NetworkDeviceDB
+from ..database import AsyncSessionLocal, DeviceOverrideDB, NetworkDeviceDB, DevicePortScanDB, DevicePortScanResultDB
 from ..utils.redis_client import delete as redis_delete
+from ..workers.port_scanner import queue_port_scan
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _is_ipv4(ip: str) -> bool:
@@ -187,6 +191,29 @@ async def get_all_devices(
     
     # Convert back to list
     enriched = list(devices_by_mac.values())
+
+    # Trigger port scans for newly discovered online devices
+    # Check database for existing devices and trigger scans for new ones
+    async with AsyncSessionLocal() as session:
+        db_macs_result = await session.execute(
+            select(NetworkDeviceDB.mac_address).where(
+                or_(
+                    cast(NetworkDeviceDB.ip_address, String).like('192.168.2.%'),
+                    cast(NetworkDeviceDB.ip_address, String).like('192.168.3.%')
+                )
+            )
+        )
+        db_macs = {str(mac).lower() for mac in db_macs_result.scalars().all()}
+        
+        # Trigger scans for new online devices (not in database)
+        for device in enriched:
+            if device.is_online and device.mac_address.lower() not in db_macs:
+                # New device discovered - queue port scan
+                try:
+                    await queue_port_scan(device.mac_address, device.ip_address)
+                    logger.info(f"Triggered port scan for newly discovered device {device.mac_address}")
+                except Exception as e:
+                    logger.warning(f"Failed to queue port scan for new device {device.mac_address}: {e}")
 
     # Sort: favorites first, then by nickname/hostname
     enriched.sort(key=lambda d: (not d.favorite, (d.nickname or d.hostname or "").lower()))
@@ -452,4 +479,151 @@ async def delete_override(mac: str, _: str = Depends(get_current_user)) -> dict:
         # Invalidate device overrides cache
         await redis_delete("device_overrides:all")
         return {"status": "ok"}
+
+
+class PortInfo(BaseModel):
+    """Port scan result information"""
+    port: int
+    state: str
+    service_name: Optional[str] = None
+    service_version: Optional[str] = None
+    service_product: Optional[str] = None
+    service_extrainfo: Optional[str] = None
+    protocol: str
+
+
+class PortScanResult(BaseModel):
+    """Port scan result with metadata"""
+    scan_id: int
+    mac_address: str
+    ip_address: str
+    scan_status: str  # 'pending', 'in_progress', 'completed', 'failed'
+    scan_started_at: datetime
+    scan_completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    ports: List[PortInfo] = []
+
+
+@router.get("/{mac_address}/ports")
+async def get_device_port_scan(
+    mac_address: str,
+    _: str = Depends(get_current_user)
+) -> PortScanResult:
+    """Get latest port scan results for a device
+    
+    Args:
+        mac_address: Device MAC address
+        
+    Returns:
+        PortScanResult: Latest port scan results with port details
+    """
+    async with AsyncSessionLocal() as session:
+        # Get the latest scan for this device
+        result = await session.execute(
+            select(DevicePortScanDB).where(
+                DevicePortScanDB.mac_address == mac_address
+            ).order_by(DevicePortScanDB.scan_started_at.desc())
+        )
+        scan_record = result.scalar_one_or_none()
+        
+        if not scan_record:
+            raise HTTPException(status_code=404, detail="No port scan found for this device")
+        
+        # Get port scan results
+        ports_result = await session.execute(
+            select(DevicePortScanResultDB).where(
+                DevicePortScanResultDB.scan_id == scan_record.id
+            ).order_by(DevicePortScanResultDB.port)
+        )
+        port_records = ports_result.scalars().all()
+        
+        ports = [
+            PortInfo(
+                port=pr.port,
+                state=pr.state,
+                service_name=pr.service_name,
+                service_version=pr.service_version,
+                service_product=pr.service_product,
+                service_extrainfo=pr.service_extrainfo,
+                protocol=pr.protocol
+            )
+            for pr in port_records
+        ]
+        
+        return PortScanResult(
+            scan_id=scan_record.id,
+            mac_address=str(scan_record.mac_address),
+            ip_address=str(scan_record.ip_address),
+            scan_status=scan_record.scan_status,
+            scan_started_at=scan_record.scan_started_at,
+            scan_completed_at=scan_record.scan_completed_at,
+            error_message=scan_record.error_message,
+            ports=ports
+        )
+
+
+@router.post("/{mac_address}/ports/scan")
+async def trigger_device_port_scan(
+    mac_address: str,
+    _: str = Depends(get_current_user)
+) -> dict:
+    """Trigger an immediate port scan for a device
+    
+    Args:
+        mac_address: Device MAC address
+        
+    Returns:
+        dict: Status of scan request
+    """
+    # Get device IP address
+    async with AsyncSessionLocal() as session:
+        # Try to get IP from network_devices table
+        device_result = await session.execute(
+            select(NetworkDeviceDB).where(
+                NetworkDeviceDB.mac_address == mac_address
+            )
+        )
+        device = device_result.scalar_one_or_none()
+        
+        if not device:
+            # Try to get from current discovery
+            dhcp_leases = parse_dnsmasq_leases()
+            devices = discover_network_devices(dhcp_leases)
+            matching_device = next((d for d in devices if d.mac_address.lower() == mac_address.lower()), None)
+            
+            if not matching_device:
+                raise HTTPException(status_code=404, detail="Device not found")
+            
+            ip_address = matching_device.ip_address
+        else:
+            ip_address = str(device.ip_address)
+        
+        # Check if scan is already in progress
+        scan_result = await session.execute(
+            select(DevicePortScanDB).where(
+                DevicePortScanDB.mac_address == mac_address,
+                DevicePortScanDB.scan_status.in_(['pending', 'in_progress'])
+            )
+        )
+        existing_scan = scan_result.scalar_one_or_none()
+        
+        if existing_scan:
+            return {
+                "status": existing_scan.scan_status,
+                "message": f"Scan already {existing_scan.scan_status}"
+            }
+        
+        # Queue the scan
+        queued = await queue_port_scan(mac_address, ip_address)
+        
+        if queued:
+            return {
+                "status": "queued",
+                "message": "Port scan queued successfully"
+            }
+        else:
+            return {
+                "status": "skipped",
+                "message": "Port scan already in progress or device offline"
+            }
 

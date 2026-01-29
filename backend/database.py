@@ -193,8 +193,46 @@ class DeviceOverrideDB(Base):
     mac_address = Column(MACADDR, nullable=False, unique=True, index=True)
     nickname = Column(String(255))
     favorite = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class DevicePortScanDB(Base):
+    """Port scan records for network devices"""
+    __tablename__ = "device_port_scans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    mac_address = Column(MACADDR, nullable=False, index=True)
+    ip_address = Column(INET, nullable=False, index=True)
+    scan_status = Column(String(32), nullable=False, default='pending', index=True)  # 'pending', 'in_progress', 'completed', 'failed'
+    scan_started_at = Column(DateTime(timezone=True), nullable=False)
+    scan_completed_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text('now()'))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()'))
+    
+    __table_args__ = (
+        Index('idx_device_port_scans_mac', 'mac_address'),
+        Index('idx_device_port_scans_status', 'scan_status'),
+    )
+
+
+class DevicePortScanResultDB(Base):
+    """Individual port scan results"""
+    __tablename__ = "device_port_scan_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey('device_port_scans.id', ondelete='CASCADE'), nullable=False, index=True)
+    port = Column(Integer, nullable=False)
+    state = Column(String(32), nullable=False)  # 'open', 'closed', 'filtered', 'open|filtered', 'closed|filtered'
+    service_name = Column(String(255), nullable=True)
+    service_version = Column(String(255), nullable=True)
+    service_product = Column(String(255), nullable=True)
+    service_extrainfo = Column(Text, nullable=True)
+    protocol = Column(String(8), nullable=False, default='tcp')  # 'tcp' or 'udp'
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text('now()'))
+    
+    __table_args__ = (
+        Index('idx_device_port_scan_results_scan_id', 'scan_id'),
+    )
 
 
 class ClientBandwidthStatsDB(Base):
@@ -1137,4 +1175,34 @@ async def _apply_schema_updates(conn):
             print("Applied migration 008: DNS and DHCP configuration history tables")
         else:
             print(f"Warning: Migration file not found at {migration_path}")
+    
+    # Migration 009: Device port scans - ensure tables and triggers exist
+    result = await conn.execute(
+        text("""
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_name = 'device_port_scans'
+        """)
+    )
+    has_port_scans = result.scalar() is not None
+    
+    if not has_port_scans:
+        # Tables will be created by SQLAlchemy, but ensure they exist
+        await conn.run_sync(Base.metadata.create_all)
+        print("Created device_port_scans and device_port_scan_results tables")
+    
+    # Ensure triggers exist for updated_at
+    result = await conn.execute(
+        text("""
+            SELECT 1 FROM pg_trigger WHERE tgname = 'device_port_scans_updated_at'
+        """)
+    )
+    if result.scalar() is None:
+        await conn.execute(
+            text("""
+                CREATE TRIGGER device_port_scans_updated_at
+                BEFORE UPDATE ON device_port_scans
+                FOR EACH ROW EXECUTE PROCEDURE set_updated_at()
+            """)
+        )
+        print("Created device_port_scans_updated_at trigger")
 

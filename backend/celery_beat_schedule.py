@@ -23,6 +23,12 @@ beat_schedule = {
         'task': 'backend.workers.notifications.evaluate_notifications',
         'schedule': settings.notification_check_interval,  # Every 30 seconds
     },
+    
+    # Periodic device port scanning every 30 minutes
+    'scan-device-ports-periodic': {
+        'task': 'backend.workers.port_scanner_periodic.scan_devices_periodic',
+        'schedule': crontab(minute='*/30'),  # Every 30 minutes
+    },
 }
 
 # Add Redis buffer flush task if enabled

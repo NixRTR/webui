@@ -3,12 +3,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Badge, TextInput, Select, Button, Tooltip } from 'flowbite-react';
-import { HiSearch, HiPencil } from 'react-icons/hi';
+import { Card, Table, Badge, TextInput, Select, Button, Tooltip, Modal } from 'flowbite-react';
+import { HiSearch, HiPencil, HiClock } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
+import type { PortScanResult, PortScanStatus } from '../types/devices';
 
 interface NetworkDevice {
   network: string;
@@ -38,12 +39,124 @@ export function Clients() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<string>('ip'); // Default to IP
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [portScanModalOpen, setPortScanModalOpen] = useState(false);
+  const [selectedDevicePorts, setSelectedDevicePorts] = useState<PortScanResult | null>(null);
+  const [selectedDeviceMac, setSelectedDeviceMac] = useState<string | null>(null);
+  const [portScanStatuses, setPortScanStatuses] = useState<Map<string, PortScanStatus>>(new Map());
+  const [loadingPortScan, setLoadingPortScan] = useState(false);
   
   const { connectionStatus } = useMetrics(token);
   
   const handleLogout = async () => {
     await apiClient.logout();
     navigate('/login');
+  };
+
+  const fetchPortScan = async (macAddress: string) => {
+    if (!token) return;
+    try {
+      setLoadingPortScan(true);
+      setSelectedDeviceMac(macAddress);
+      const result = await apiClient.getDevicePortScan(macAddress);
+      setSelectedDevicePorts(result);
+      setPortScanStatuses(prev => new Map(prev).set(macAddress.toLowerCase(), result.scan_status));
+      setPortScanModalOpen(true);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        // No scan exists yet
+        setSelectedDeviceMac(macAddress);
+        setSelectedDevicePorts(null);
+        setPortScanModalOpen(true);
+      } else {
+        console.error('Failed to fetch port scan:', error);
+        alert('Failed to load port scan results');
+      }
+    } finally {
+      setLoadingPortScan(false);
+    }
+  };
+
+  const triggerPortScan = async (macAddress: string, ipAddress: string) => {
+    if (!token) return;
+    try {
+      setLoadingPortScan(true);
+      const response = await apiClient.triggerDevicePortScan(macAddress);
+      if (response.status === 'queued' || response.status === 'in_progress') {
+        setPortScanStatuses(prev => new Map(prev).set(macAddress.toLowerCase(), 'pending'));
+        // Poll for results
+        setTimeout(() => {
+          fetchPortScan(macAddress);
+        }, 2000);
+      } else {
+        alert(response.message || 'Failed to trigger scan');
+      }
+    } catch (error) {
+      console.error('Failed to trigger port scan:', error);
+      alert('Failed to trigger port scan');
+    } finally {
+      setLoadingPortScan(false);
+    }
+  };
+
+  const getPortScanButton = (device: NetworkDevice) => {
+    const macLower = device.mac_address.toLowerCase();
+    const status = portScanStatuses.get(macLower);
+    const isPendingOrInProgress = status === 'pending' || status === 'in_progress';
+    const isCompleted = status === 'completed';
+    const isFailed = status === 'failed';
+    
+    if (!device.is_online) {
+      return (
+        <Tooltip content="Device is offline">
+          <Button size="xs" color="gray" disabled>
+            Ports
+          </Button>
+        </Tooltip>
+      );
+    }
+
+    if (isPendingOrInProgress) {
+      return (
+        <Tooltip content="Port scan in progress">
+          <Button size="xs" color="gray" disabled>
+            <HiClock className="w-3 h-3 mr-1" />
+            Scanning...
+          </Button>
+        </Tooltip>
+      );
+    }
+
+    if (isFailed) {
+      return (
+        <Tooltip content="Last scan failed - click to retry">
+          <Button 
+            size="xs" 
+            color="failure" 
+            onClick={() => triggerPortScan(device.mac_address, device.ip_address)}
+          >
+            Ports (Failed)
+          </Button>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <Tooltip content={isCompleted ? "View port scan results" : "Scan ports"}>
+        <Button 
+          size="xs" 
+          color="gray" 
+          onClick={() => {
+            if (isCompleted) {
+              fetchPortScan(device.mac_address);
+            } else {
+              triggerPortScan(device.mac_address, device.ip_address);
+            }
+          }}
+        >
+          Ports{isCompleted && selectedDevicePorts ? ` (${selectedDevicePorts.ports.length})` : ''}
+        </Button>
+      </Tooltip>
+    );
   };
 
   // Fetch devices every 10 seconds
@@ -61,6 +174,31 @@ export function Clients() {
         if (response.ok) {
           const data = await response.json();
           setDevices(data);
+          
+          // Fetch port scan statuses for online devices
+          const onlineDevices = data.filter((d: NetworkDevice) => d.is_online);
+          const statusMap = new Map<string, PortScanStatus>();
+          
+          // Fetch statuses in parallel (limit to 10 at a time to avoid overwhelming)
+          const batchSize = 10;
+          for (let i = 0; i < onlineDevices.length; i += batchSize) {
+            const batch = onlineDevices.slice(i, i + batchSize);
+            await Promise.allSettled(
+              batch.map(async (device: NetworkDevice) => {
+                try {
+                  const scanResult = await apiClient.getDevicePortScan(device.mac_address);
+                  statusMap.set(device.mac_address.toLowerCase(), scanResult.scan_status);
+                } catch (error: any) {
+                  // 404 means no scan exists, which is fine
+                  if (error.response?.status !== 404) {
+                    console.debug(`Failed to fetch port scan for ${device.mac_address}:`, error);
+                  }
+                }
+              })
+            );
+          }
+          
+          setPortScanStatuses(statusMap);
         }
       } catch (error) {
         console.error('Failed to fetch devices:', error);
@@ -647,6 +785,7 @@ export function Clients() {
                         >
                           {isDeviceBlocked(device) ? 'Enable' : 'Disable'}
                         </Button>
+                        {getPortScanButton(device)}
                         </div>
                       </Table.Cell>
                     </Table.Row>
@@ -743,6 +882,9 @@ export function Clients() {
                           {device.favorite ? '★ Favorite' : '☆ Favorite'}
                         </Button>
                       </div>
+                      <div className="mt-2">
+                        {getPortScanButton(device)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -756,6 +898,141 @@ export function Clients() {
             )}
             
           </Card>
+
+          {/* Port Scan Modal */}
+          <Modal show={portScanModalOpen} onClose={() => {
+            setPortScanModalOpen(false);
+            setSelectedDevicePorts(null);
+            setSelectedDeviceMac(null);
+          }} size="xl">
+            <Modal.Header>
+              Port Scan Results
+              {selectedDevicePorts ? (
+                <span className="ml-2 text-sm text-gray-500">
+                  {selectedDevicePorts.mac_address} ({selectedDevicePorts.ip_address})
+                </span>
+              ) : selectedDeviceMac ? (
+                <span className="ml-2 text-sm text-gray-500">
+                  {selectedDeviceMac}
+                </span>
+              ) : null}
+            </Modal.Header>
+            <Modal.Body>
+              {loadingPortScan ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"></div>
+                  <p className="mt-2 text-gray-600 dark:text-gray-400">Loading port scan results...</p>
+                </div>
+              ) : selectedDevicePorts ? (
+                <div>
+                  <div className="mb-4 flex justify-between items-center">
+                    <div>
+                      <Badge color={
+                        selectedDevicePorts.scan_status === 'completed' ? 'success' :
+                        selectedDevicePorts.scan_status === 'failed' ? 'failure' :
+                        selectedDevicePorts.scan_status === 'in_progress' ? 'warning' : 'gray'
+                      }>
+                        {selectedDevicePorts.scan_status.toUpperCase()}
+                      </Badge>
+                      <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                        Started: {new Date(selectedDevicePorts.scan_started_at).toLocaleString()}
+                      </span>
+                      {selectedDevicePorts.scan_completed_at && (
+                        <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                          Completed: {new Date(selectedDevicePorts.scan_completed_at).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      size="xs"
+                      color="gray"
+                      onClick={() => {
+                        if (selectedDevicePorts) {
+                          triggerPortScan(selectedDevicePorts.mac_address, selectedDevicePorts.ip_address);
+                        }
+                      }}
+                    >
+                      Refresh Scan
+                    </Button>
+                  </div>
+                  
+                  {selectedDevicePorts.error_message && (
+                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+                      <p className="text-sm text-red-800 dark:text-red-200">
+                        <strong>Error:</strong> {selectedDevicePorts.error_message}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedDevicePorts.ports.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <Table.Head>
+                          <Table.HeadCell>Port</Table.HeadCell>
+                          <Table.HeadCell>Protocol</Table.HeadCell>
+                          <Table.HeadCell>State</Table.HeadCell>
+                          <Table.HeadCell>Service</Table.HeadCell>
+                          <Table.HeadCell>Version</Table.HeadCell>
+                          <Table.HeadCell>Product</Table.HeadCell>
+                        </Table.Head>
+                        <Table.Body>
+                          {selectedDevicePorts.ports.map((port, idx) => (
+                            <Table.Row key={idx}>
+                              <Table.Cell className="font-mono">{port.port}</Table.Cell>
+                              <Table.Cell className="uppercase">{port.protocol}</Table.Cell>
+                              <Table.Cell>
+                                <Badge color={
+                                  port.state === 'open' ? 'success' :
+                                  port.state === 'closed' ? 'gray' :
+                                  port.state === 'filtered' ? 'warning' : 'gray'
+                                } size="sm">
+                                  {port.state}
+                                </Badge>
+                              </Table.Cell>
+                              <Table.Cell>{port.service_name || '—'}</Table.Cell>
+                              <Table.Cell>{port.service_version || '—'}</Table.Cell>
+                              <Table.Cell>{port.service_product || '—'}</Table.Cell>
+                            </Table.Row>
+                          ))}
+                        </Table.Body>
+                      </Table>
+                    </div>
+                  ) : selectedDevicePorts.scan_status === 'completed' ? (
+                    <p className="text-center py-4 text-gray-600 dark:text-gray-400">
+                      No open ports found
+                    </p>
+                  ) : (
+                    <p className="text-center py-4 text-gray-600 dark:text-gray-400">
+                      Scan in progress or no results yet
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">
+                    No port scan results available for this device.
+                  </p>
+                  {selectedDeviceMac && (
+                    <Button
+                      color="gray"
+                      onClick={async () => {
+                        const device = devices.find(d => 
+                          d.mac_address.toLowerCase() === selectedDeviceMac.toLowerCase() && d.is_online
+                        );
+                        if (device) {
+                          await triggerPortScan(device.mac_address, device.ip_address);
+                        } else {
+                          setPortScanModalOpen(false);
+                        }
+                      }}
+                    >
+                      Start Port Scan
+                    </Button>
+                  )}
+                </div>
+              )}
+            </Modal.Body>
+          </Modal>
         </main>
       </div>
     </div>

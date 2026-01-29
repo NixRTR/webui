@@ -56,6 +56,10 @@ import type {
   WhitelistConfig,
   WhitelistConfigUpdate,
 } from '../types/whitelist';
+import type {
+  PortScanResult,
+  PortScanTriggerResponse,
+} from '../types/devices';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -666,6 +670,17 @@ class APIClient {
 
   async updateWhitelist(network: 'homelab' | 'lan', config: WhitelistConfigUpdate): Promise<WhitelistConfig> {
     const response = await this.client.put<WhitelistConfig>(`/api/whitelist/${network}`, config);
+    return response.data;
+  }
+
+  // Device Port Scanning
+  async getDevicePortScan(macAddress: string): Promise<PortScanResult> {
+    const response = await this.client.get<PortScanResult>(`/api/devices/${encodeURIComponent(macAddress)}/ports`);
+    return response.data;
+  }
+
+  async triggerDevicePortScan(macAddress: string): Promise<PortScanTriggerResponse> {
+    const response = await this.client.post<PortScanTriggerResponse>(`/api/devices/${encodeURIComponent(macAddress)}/ports/scan`);
     return response.data;
   }
 }
