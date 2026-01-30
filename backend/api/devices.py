@@ -632,11 +632,11 @@ async def get_device_port_scan(
         PortScanResult: Latest port scan results with port details
     """
     async with AsyncSessionLocal() as session:
-        # Get the latest scan for this device
+        # Get the latest scan for this device (limit 1 so scalar_one_or_none is valid)
         result = await session.execute(
             select(DevicePortScanDB).where(
                 DevicePortScanDB.mac_address == mac_address
-            ).order_by(DevicePortScanDB.scan_started_at.desc())
+            ).order_by(DevicePortScanDB.scan_started_at.desc()).limit(1)
         )
         scan_record = result.scalar_one_or_none()
         
