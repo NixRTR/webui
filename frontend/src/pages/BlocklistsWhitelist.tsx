@@ -41,7 +41,7 @@ export function BlocklistsWhitelist() {
       return;
     }
     fetchAll();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchAll = async () => {
     setLoading(true);

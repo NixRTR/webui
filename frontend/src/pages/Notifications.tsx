@@ -96,27 +96,30 @@ const getParameterType = (category: string, subSelection: Record<string, string>
       return 'cpu_percent';
     case 'memory':
       return 'memory_percent';
-    case 'load':
+    case 'load': {
       const period = subSelection.loadPeriod;
       if (period === '1m') return 'load_avg_1m';
       if (period === '5m') return 'load_avg_5m';
       if (period === '15m') return 'load_avg_15m';
       return 'load_avg_1m';
-    case 'bandwidth':
+    }
+    case 'bandwidth': {
       const direction = subSelection.bandwidthDirection;
       if (direction === 'download') return 'interface_rx_bytes';
       if (direction === 'upload') return 'interface_tx_bytes';
       return 'interface_rx_bytes';
+    }
     case 'temperature':
       return 'temperature_c';
     case 'service':
       return 'service_status';
-    case 'speedtest':
+    case 'speedtest': {
       const speedtestType = subSelection.speedtestType;
       if (speedtestType === 'download') return 'speedtest_download';
       if (speedtestType === 'upload') return 'speedtest_upload';
       if (speedtestType === 'ping') return 'speedtest_ping';
       return 'speedtest_download';
+    }
     default:
       return '';
   }
@@ -200,7 +203,7 @@ export function Notifications() {
       const config = await apiClient.getAppriseConfig();
       const servicesList = transformConfigServices(config);
       setAppriseServices(servicesList);
-    } catch (err: any) {
+    } catch {
       setAppriseEnabled(false);
     }
   };

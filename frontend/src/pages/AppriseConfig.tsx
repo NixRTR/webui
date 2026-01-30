@@ -9,7 +9,7 @@ import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiBell } from 'react-icons/hi';
-import type { AppriseConfig, AppriseConfigUpdate } from '../types/apprise-config';
+import type { AppriseConfigUpdate } from '../types/apprise-config';
 
 export function AppriseConfig() {
   const token = localStorage.getItem('access_token');
@@ -39,7 +39,7 @@ export function AppriseConfig() {
       return;
     }
     fetchConfig();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchConfig = async () => {
     setLoading(true);

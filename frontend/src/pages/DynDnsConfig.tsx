@@ -9,7 +9,7 @@ import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiRefresh } from 'react-icons/hi';
-import type { DynDnsConfig, DynDnsConfigUpdate } from '../types/dyndns';
+import type { DynDnsConfigUpdate } from '../types/dyndns';
 
 export function DynDnsConfig() {
   const token = localStorage.getItem('access_token');
@@ -38,7 +38,7 @@ export function DynDnsConfig() {
       return;
     }
     fetchConfig();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchConfig = async () => {
     setLoading(true);

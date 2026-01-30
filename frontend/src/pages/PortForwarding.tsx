@@ -42,7 +42,7 @@ export function PortForwarding() {
       return;
     }
     fetchRules();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchRules = async () => {
     setLoading(true);

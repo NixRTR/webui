@@ -63,7 +63,7 @@ export function Dhcp() {
     }
     fetchNetworks();
     fetchDhcpServiceStatuses();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchDhcpServiceStatuses = async () => {
     try {

@@ -9,7 +9,7 @@ import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiTrendingUp } from 'react-icons/hi';
-import type { CakeConfig, CakeConfigUpdate } from '../types/cake';
+import type { CakeConfigUpdate } from '../types/cake';
 
 export function CakeConfig() {
   const token = localStorage.getItem('access_token');
@@ -35,7 +35,7 @@ export function CakeConfig() {
       return;
     }
     fetchConfig();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchConfig = async () => {
     setLoading(true);

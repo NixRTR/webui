@@ -90,6 +90,7 @@ export function ConnectionDetails({ sourcePage }: ConnectionDetailsProps) {
     fetchConnections();
     const interval = setInterval(fetchConnections, 5000); // Auto-refresh every 5 seconds
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchConnections is stable for this effect
   }, [token, ipAddress, tableTimeRange, tableCustomRange]);
 
   // Fetch chart data
@@ -121,6 +122,7 @@ export function ConnectionDetails({ sourcePage }: ConnectionDetailsProps) {
       const interval = setInterval(fetchChartData, refreshInterval * 1000);
       return () => clearInterval(interval);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchChartData is stable for this effect
   }, [token, ipAddress, selectedConnection, timeRange, customRange, chartInterval, refreshInterval, chartModalOpen]);
 
   const openChart = (connection: ConnectionCurrent) => {

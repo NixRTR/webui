@@ -170,9 +170,9 @@ export function TrafficShaping() {
   const getTotalThroughput = (): number => {
     if (!currentStats?.classes) return 0;
     
-    let totalBytes = 0;
+    let _totalBytes = 0;
     Object.values(currentStats.classes).forEach(cls => {
-      if (cls.bytes) totalBytes += cls.bytes;
+      if (cls.bytes) _totalBytes += cls.bytes;
     });
     
     // This is cumulative bytes, not rate. For rate, we'd need to track changes over time.

@@ -223,7 +223,7 @@ export function Clients() {
           setBlockedV4(data.ipv4 || []);
           setBlockedMacs((data.macs || []).map((m: string) => m.toLowerCase()));
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
@@ -342,7 +342,7 @@ export function Clients() {
           setBlockedMacs(prev => prev.filter(m => m !== device.mac_address.toLowerCase()));
         }
       }
-    } catch (e) {
+    } catch {
       // Network error, revert optimistic update
       if (blocked) {
         // Was unblocking, revert by re-adding to blocked lists
@@ -427,23 +427,25 @@ export function Clients() {
     let comparison = 0;
     
     switch (sortColumn) {
-      case 'ip':
+      case 'ip': {
         const ipA = getSortableIP(a.ip_address);
         const ipB = getSortableIP(b.ip_address);
         comparison = ipA.localeCompare(ipB);
         break;
+      }
       case 'device':
         comparison = getDisplayName(a).toLowerCase().localeCompare(getDisplayName(b).toLowerCase());
         break;
       case 'mac':
         comparison = a.mac_address.localeCompare(b.mac_address);
         break;
-      case 'vendor':
+      case 'vendor': {
         // Nulls last
         const vendorA = a.vendor || '\uffff';
         const vendorB = b.vendor || '\uffff';
         comparison = vendorA.toLowerCase().localeCompare(vendorB.toLowerCase());
         break;
+      }
       case 'network':
         comparison = a.network.localeCompare(b.network);
         break;
@@ -455,11 +457,12 @@ export function Clients() {
         // DHCP first when ascending
         comparison = (b.is_dhcp ? 1 : 0) - (a.is_dhcp ? 1 : 0);
         break;
-      case 'lastSeen':
+      case 'lastSeen': {
         const dateA = new Date(a.last_seen).getTime();
         const dateB = new Date(b.last_seen).getTime();
         comparison = dateA - dateB;
         break;
+      }
       default:
         // Default: sort by IP
         comparison = getSortableIP(a.ip_address).localeCompare(getSortableIP(b.ip_address));

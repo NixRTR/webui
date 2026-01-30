@@ -62,7 +62,7 @@ export function Dns() {
     }
     fetchZones();
     fetchServiceStatuses();
-  }, [token]);
+  }, [token, navigate]);
 
   const fetchZones = async () => {
     setLoading(true);

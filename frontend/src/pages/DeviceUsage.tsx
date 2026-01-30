@@ -149,7 +149,7 @@ export function DeviceUsage() {
           setBlockedV4(data.ipv4 || []);
           setBlockedMacs((data.macs || []).map((m: string) => m.toLowerCase()));
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
@@ -269,7 +269,7 @@ export function DeviceUsage() {
         },
         body: JSON.stringify(body),
       });
-    } catch (e) {
+    } catch {
       // revert on error
       if (blocked) {
         setBlockedV4(prev => Array.from(new Set([...prev, device.ip_address])));
@@ -313,6 +313,7 @@ export function DeviceUsage() {
       const interval = setInterval(() => loadChartData(selectedDevice), refreshInterval * 1000);
       return () => clearInterval(interval);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadChartData is stable for this effect
   }, [timeRange, customRange, chartInterval, refreshInterval, chartModalOpen, selectedDevice, token]);
 
   // Format bytes (input in MB) to best unit (TB, GB, MB, KB)
@@ -433,20 +434,22 @@ export function DeviceUsage() {
         // Online first, then offline
         comparison = (a.is_online ? 0 : 1) - (b.is_online ? 0 : 1);
         break;
-      case 'dl':
+      case 'dl': {
         const macA = a.mac_address.toLowerCase();
         const macB = b.mac_address.toLowerCase();
         const avgA = bandwidthAverages[macA]?.dl_1h || 0;
         const avgB = bandwidthAverages[macB]?.dl_1h || 0;
         comparison = avgA - avgB;
         break;
-      case 'ul':
+      }
+      case 'ul': {
         const macA2 = a.mac_address.toLowerCase();
         const macB2 = b.mac_address.toLowerCase();
         const avgA2 = bandwidthAverages[macA2]?.ul_1h || 0;
         const avgB2 = bandwidthAverages[macB2]?.ul_1h || 0;
         comparison = avgA2 - avgB2;
         break;
+      }
       default:
         return 0;
     }
