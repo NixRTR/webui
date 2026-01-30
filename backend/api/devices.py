@@ -95,15 +95,18 @@ async def get_all_devices(
     seen_macs = {d.mac_address.lower() for d in devices}
     
     # Also query database for offline devices that might not be in current discovery
+    # Only fetch devices seen recently (last 7 days) to avoid loading thousands of old devices
+    # Use network column (indexed) instead of IP LIKE pattern for better performance
+    from datetime import timedelta
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    
     async with AsyncSessionLocal() as session:
-        # Get all devices from database that are in bridge subnets
-        # Use cast to string for LIKE comparison with INET type
+        # Filter by network column (has index) instead of IP pattern matching
+        # This is much more efficient than LIKE with cast()
         result = await session.execute(
             select(NetworkDeviceDB).where(
-                or_(
-                    cast(NetworkDeviceDB.ip_address, String).like('192.168.2.%'),
-                    cast(NetworkDeviceDB.ip_address, String).like('192.168.3.%')
-                )
+                NetworkDeviceDB.network.in_(['homelab', 'lan']),
+                NetworkDeviceDB.last_seen >= recent_cutoff
             )
         )
         db_devices = result.scalars().all()
