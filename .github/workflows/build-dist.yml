@@ -4,23 +4,49 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'frontend/src/**'
-      - 'frontend/package.json'
-      - 'frontend/package-lock.json'
-      - 'frontend/vite.config.ts'
-      - 'frontend/tsconfig*.json'
-      - 'frontend/tailwind.config.js'
-      - 'frontend/postcss.config.js'
-      - 'frontend/index.html'
-      - 'frontend/public/**'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  should-build:
+    runs-on: ubuntu-latest
+    outputs:
+      run_build: ${{ steps.decide.outputs.run_build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to build
+        id: decide
+        run: |
+          # Manual trigger: always build
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run_build=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Push: build if any commit message contains BUILD_FRONTEND_DIST
+          if git log --format=%B ${{ github.event.before }}..${{ github.sha }} 2>/dev/null | grep -q 'BUILD_FRONTEND_DIST'; then
+            echo "run_build=true" >> $GITHUB_OUTPUT
+            echo "Forced by BUILD_FRONTEND_DIST in commit message"
+            exit 0
+          fi
+          # Build if frontend source/config paths changed
+          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null || true)
+          if echo "$FILES" | grep -qE '^frontend/(src/|package\.json|package-lock\.json|vite\.config\.ts|tsconfig[^/]*\.json|tailwind\.config\.js|postcss\.config\.js|index\.html|public/)'; then
+            echo "run_build=true" >> $GITHUB_OUTPUT
+            echo "Frontend paths changed"
+            exit 0
+          fi
+          echo "run_build=false" >> $GITHUB_OUTPUT
+          echo "No frontend changes or force phrase"
+
   build:
+    needs: should-build
+    if: needs.should-build.outputs.run_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
