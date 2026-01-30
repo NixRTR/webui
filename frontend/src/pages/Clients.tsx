@@ -511,7 +511,7 @@ export function Clients() {
               <p className="text-xs md:text-sm text-gray-500">
                 Showing {sortedDevices.length} of {totalCount} devices
                 {activeTab !== 'all' && ` (${activeTab.toUpperCase()} network)`}
-                <span className="hidden sm:inline">{' • '}Auto-refreshing every 10 seconds</span>
+                <span className="hidden sm:inline">{' • '}Auto-refreshing every 20 seconds</span>
               </p>
             </div>
             <div className="flex gap-2 md:gap-4">

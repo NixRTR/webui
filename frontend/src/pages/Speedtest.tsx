@@ -246,7 +246,7 @@ export function Speedtest() {
         }
       };
       
-      statusIntervalRef.current = window.setInterval(pollStatus, 1000); // Poll every second
+      statusIntervalRef.current = window.setInterval(pollStatus, 3000); // Increased from 1s to 3s to reduce server load
       return () => {
         if (statusIntervalRef.current) {
           clearInterval(statusIntervalRef.current);

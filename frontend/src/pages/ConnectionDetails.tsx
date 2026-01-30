@@ -88,7 +88,7 @@ export function ConnectionDetails({ sourcePage }: ConnectionDetailsProps) {
 
   useEffect(() => {
     fetchConnections();
-    const interval = setInterval(fetchConnections, 5000); // Auto-refresh every 5 seconds
+    const interval = setInterval(fetchConnections, 15000); // Increased from 5s to 15s to reduce server load
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchConnections is stable for this effect
   }, [token, ipAddress, tableTimeRange, tableCustomRange]);

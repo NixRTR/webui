@@ -17,9 +17,16 @@ from .config import settings
 engine = create_async_engine(
     settings.database_url,
     echo=False,  # Disable echo to prevent INFO-level SQL logging
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
+    pool_size=5,  # Reduced from 10 - fewer connections needed with better caching
+    max_overflow=10,  # Reduced from 20 - prevent connection exhaustion
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600,  # Recycle connections after 1 hour to prevent stale connections
+    connect_args={
+        "server_settings": {
+            "application_name": "router_webui",
+            "statement_timeout": "30000",  # 30 second query timeout
+        }
+    },
 )
 
 # Create async session factory
@@ -182,6 +189,8 @@ class NetworkDeviceDB(Base):
     __table_args__ = (
         # Each device (MAC) tracked per network
         Index('idx_network_devices_network_mac', 'network', 'mac_address', unique=True),
+        # Composite index for efficient queries filtering by network and last_seen
+        Index('idx_network_devices_network_last_seen', 'network', 'last_seen', postgresql_ops={'last_seen': 'DESC'}),
     )
 
 

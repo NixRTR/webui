@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from pydantic import BaseModel
 import subprocess
 import logging
+import time
 from sqlalchemy import select, or_, func
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.sql import cast
 from sqlalchemy.types import String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,6 +85,9 @@ async def get_all_devices(
     # Check cache first to avoid expensive operations
     from ..utils.redis_client import get_json, set_json
     from ..config import settings
+    import time
+    
+    overall_start = time.time()
     
     cache_key = "api:devices:all"
     cached_result = await get_json(cache_key)
@@ -91,6 +97,7 @@ async def get_all_devices(
     
     # Cache DHCP leases parsing (expensive file I/O)
     # Use longer cache TTL since leases don't change frequently
+    dhcp_start = time.time()
     dhcp_cache_key = "cache:dhcp_leases"
     cached_dhcp = await get_json(dhcp_cache_key)
     if cached_dhcp:
@@ -100,8 +107,14 @@ async def get_all_devices(
         dhcp_leases = parse_dnsmasq_leases()
         # Cache for 15 seconds (DHCP leases change infrequently, longer cache reduces I/O)
         await set_json(dhcp_cache_key, [lease.model_dump() for lease in dhcp_leases], ttl=15)
+    dhcp_time = time.time() - dhcp_start
     
+    discovery_start = time.time()
     devices = discover_network_devices(dhcp_leases)
+    discovery_time = time.time() - discovery_start
+    
+    if dhcp_time > 0.1 or discovery_time > 0.2:
+        logger.warning(f"Slow device discovery: DHCP parsing={dhcp_time:.3f}s, discovery={discovery_time:.3f}s")
 
     # NOTE: Port scan triggering moved to background worker to avoid blocking API requests
     # This was causing high CPU usage when triggered on every request
@@ -122,6 +135,7 @@ async def get_all_devices(
         # Filter by network column (has index) instead of IP pattern matching
         # This is much more efficient than LIKE with cast()
         # Limit results to prevent loading too many devices
+        query_start = time.time()
         result = await session.execute(
             select(NetworkDeviceDB).where(
                 NetworkDeviceDB.network.in_(['homelab', 'lan']),
@@ -129,6 +143,9 @@ async def get_all_devices(
             ).limit(500)  # Limit to prevent excessive memory usage
         )
         db_devices = result.scalars().all()
+        query_time = time.time() - query_start
+        if query_time > 0.1:  # Log slow queries (>100ms)
+            logger.warning(f"Slow database query in get_all_devices: {query_time:.3f}s (fetched {len(db_devices)} devices)")
         
         # Add devices from database that we haven't seen yet
         for db_dev in db_devices:
@@ -166,9 +183,15 @@ async def get_all_devices(
         # Cache miss - fetch from database
         async with AsyncSessionLocal() as session:
             # Fetch ALL overrides for caching
+            query_start = time.time()
             result = await session.execute(select(DeviceOverrideDB))
+            override_rows = result.scalars().all()
+            query_time = time.time() - query_start
+            if query_time > 0.05:  # Log slow queries (>50ms)
+                logger.warning(f"Slow DeviceOverrideDB query: {query_time:.3f}s (fetched {len(override_rows)} rows)")
+            
             all_overrides = {}
-            for ov in result.scalars().all():
+            for ov in override_rows:
                 mac_key = str(ov.mac_address).lower()
                 all_overrides[mac_key] = {
                     'hostname': ov.hostname,
@@ -224,8 +247,18 @@ async def get_all_devices(
     enriched.sort(key=lambda d: (not d.favorite, (d.hostname or "").lower()))
 
     # Cache the result for future requests
+    cache_start = time.time()
     cache_data = [device.model_dump() for device in enriched]
     await set_json(cache_key, cache_data, ttl=settings.redis_cache_ttl_api)
+    cache_time = time.time() - cache_start
+    
+    overall_time = time.time() - overall_start
+    if overall_time > 0.5:  # Log if entire endpoint takes >500ms
+        logger.warning(
+            f"Slow get_all_devices endpoint: {overall_time:.3f}s total "
+            f"(DHCP={dhcp_time:.3f}s, discovery={discovery_time:.3f}s, cache={cache_time:.3f}s, "
+            f"devices={len(enriched)})"
+        )
     
     # NOTE: Port scan triggering removed from hot path - causes high CPU usage
     # Port scans should be triggered by background workers or on-demand via separate endpoint
@@ -243,6 +276,15 @@ async def get_device_counts(
     Returns:
         List[DeviceCounts]: Device counts for each network
     """
+    # Cache device counts to avoid expensive device discovery
+    from ..utils.redis_client import get_json, set_json
+    from ..config import settings
+    
+    cache_key = "api:devices:counts"
+    cached_result = await get_json(cache_key)
+    if cached_result:
+        return [DeviceCounts(**item) for item in cached_result]
+    
     counts = get_device_count_by_network()
     
     result = []
@@ -254,6 +296,9 @@ async def get_device_counts(
             dhcp=data['dhcp'],
             static=data['total'] - data['dhcp']
         ))
+    
+    # Cache for 30 seconds (counts don't change frequently)
+    await set_json(cache_key, [item.model_dump() for item in result], ttl=30)
     
     return result
 
@@ -271,25 +316,39 @@ async def get_devices_by_network(
     Returns:
         List[NetworkDevice]: Devices on the specified network
     """
+    # Reuse cached data from /api/devices/all to avoid duplicate expensive operations
+    from ..utils.redis_client import get_json
+    
+    cache_key = "api:devices:all"
+    cached_result = await get_json(cache_key)
+    
+    if cached_result:
+        # Filter cached devices by network
+        filtered = [d for d in cached_result if d.get('network') == network]
+        return filtered
+    
+    # Fallback: if cache miss, do the expensive operation
     dhcp_leases = parse_dnsmasq_leases()
     all_devices = discover_network_devices(dhcp_leases)
     
     # Filter to IPv4 only and by network
-    filtered = [d for d in all_devices if _is_ipv4(d.ip_address) and d.network == network]
+    filtered_devices = [d for d in all_devices if _is_ipv4(d.ip_address) and d.network == network]
     
+    # Convert to dict format for return (consistent with cached response)
     return [
-        NetworkDevice(
-            network=device.network,
-            ip_address=device.ip_address,
-            mac_address=device.mac_address,
-            hostname=device.hostname,
-            vendor=device.vendor,
-            is_dhcp=device.is_dhcp,
-            is_static=device.is_static,
-            is_online=device.is_online,
-            last_seen=device.last_seen
-        )
-        for device in filtered
+        {
+            'network': device.network,
+            'ip_address': device.ip_address,
+            'mac_address': device.mac_address,
+            'hostname': device.hostname,
+            'vendor': device.vendor,
+            'is_dhcp': device.is_dhcp,
+            'is_static': device.is_static,
+            'is_online': device.is_online,
+            'last_seen': device.last_seen,
+            'favorite': False  # Default, will be enriched if needed
+        }
+        for device in filtered_devices
     ]
 
 
@@ -665,6 +724,7 @@ async def get_device_ip_history(
             .where(DevicePortScanDB.mac_address == mac_address)
             .group_by(DevicePortScanDB.ip_address)
             .order_by(func.max(DevicePortScanDB.scan_started_at).desc())
+            .limit(100)  # Limit to most recent 100 IP addresses
         )
         result = await session.execute(stmt)
         rows = result.all()
