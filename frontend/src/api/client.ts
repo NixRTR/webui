@@ -62,6 +62,11 @@ import type {
   PortScanResult,
   PortScanTriggerResponse,
 } from '../types/devices';
+import type {
+  WorkerStatusResponse,
+  PurgeQueuesResponse,
+  TriggerTestTaskResponse,
+} from '../types/worker-status';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -694,6 +699,28 @@ class APIClient {
 
   async triggerDevicePortScan(macAddress: string): Promise<PortScanTriggerResponse> {
     const response = await this.client.post<PortScanTriggerResponse>(`/api/devices/${encodeURIComponent(macAddress)}/ports/scan`);
+    return response.data;
+  }
+
+  // Worker Status (Celery)
+  async getWorkerStatus(): Promise<WorkerStatusResponse> {
+    const response = await this.client.get<WorkerStatusResponse>('/api/worker-status');
+    return response.data;
+  }
+
+  async revokeTask(taskId: string, terminate: boolean = true): Promise<void> {
+    await this.client.post(`/api/worker-status/tasks/${encodeURIComponent(taskId)}/revoke`, null, {
+      params: { terminate },
+    });
+  }
+
+  async purgeWorkerQueues(): Promise<PurgeQueuesResponse> {
+    const response = await this.client.post<PurgeQueuesResponse>('/api/worker-status/queues/purge');
+    return response.data;
+  }
+
+  async triggerWorkerTestTask(): Promise<TriggerTestTaskResponse> {
+    const response = await this.client.post<TriggerTestTaskResponse>('/api/worker-status/test-task');
     return response.data;
   }
 }

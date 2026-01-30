@@ -84,7 +84,10 @@ class Settings(BaseSettings):
     redis_cache_ttl_rules: int = 60  # seconds
     redis_cache_ttl_overrides: int = 30  # seconds
     redis_cache_ttl_api: int = 10  # seconds
-    
+
+    # Worker Status (Celery) - threshold in seconds for "long-running" tasks
+    worker_status_long_running_seconds: int = 300
+
     class Config:
         env_file = "/etc/router-webui/config.env"
         env_file_encoding = "utf-8"

@@ -76,11 +76,13 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
     { path: '/settings/blocklists-whitelist', label: 'DNS Blocklists', icon: HiShieldCheck },
     { path: '/settings/port-forwarding', label: 'Port Forwarding', icon: HiArrowRight },
     { path: '/settings/dyndns', label: 'Dynamic DNS', icon: HiRefresh },
+    { path: '/worker-status', label: 'Worker Status', icon: HiServer },
     { path: '/settings/apprise', label: 'Notifications', icon: HiBell },
   ];
   // Auto-expand Settings menu when any child route is active
-  const isConfigActive = isParentActive('/settings', configChildren) || 
-                         isActive('/dns') || 
+  const isConfigActive = isParentActive('/settings', configChildren) ||
+                         isActive('/worker-status') ||
+                         isActive('/dns') ||
                          isActive('/dhcp') ||
                          isActive('/traffic-shaping');
   useEffect(() => {

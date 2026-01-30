@@ -25,6 +25,7 @@ const AppriseConfig = lazy(() => import('./pages/AppriseConfig').then(m => ({ de
 const DynDnsConfig = lazy(() => import('./pages/DynDnsConfig').then(m => ({ default: m.DynDnsConfig })));
 const PortForwarding = lazy(() => import('./pages/PortForwarding').then(m => ({ default: m.PortForwarding })));
 const BlocklistsWhitelist = lazy(() => import('./pages/BlocklistsWhitelist').then(m => ({ default: m.BlocklistsWhitelist })));
+const WorkerStatus = lazy(() => import('./pages/WorkerStatus').then(m => ({ default: m.WorkerStatus })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -239,6 +240,16 @@ export default function App() {
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
                 <BlocklistsWhitelist />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/worker-status"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <WorkerStatus />
               </Suspense>
             </ProtectedRoute>
           }

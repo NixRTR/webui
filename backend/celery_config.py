@@ -34,6 +34,7 @@ include = [
     "backend.workers.history_cleanup",
     "backend.workers.port_scanner",
     "backend.workers.port_scanner_periodic",
+    "backend.workers.test_task",
 ]
 
 # Task routing: sequential (one at a time) vs parallel (concurrent)
@@ -47,6 +48,7 @@ task_routes = {
     'backend.workers.port_scanner_periodic.scan_devices_periodic': {'queue': 'parallel'},
     'backend.workers.history_cleanup.cleanup_history_task': {'queue': 'parallel'},
     'backend.workers.port_scanner.scan_device_ports_task': {'queue': 'parallel'},
+    'backend.workers.test_task.run_test_task': {'queue': 'parallel'},
 }
 
 # Task retry settings
