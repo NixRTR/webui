@@ -107,12 +107,18 @@ def generate_dnsmasq_dhcp_config(network: str) -> Optional[str]:
     lines.append("dhcp-authoritative")
     
     # Static reservations (dhcp-host=MAC,hostname,IP)
+    # Use hostname.dynamic_domain when dynamic_domain is set so the name matches dynamic-dns.conf
+    # and dnsmasq does not report "DHCP host has multiple names"
     reservations = get_dhcp_reservations_from_config(network)
+    dynamic_domain = (dhcp_network.get('dynamic_domain') or '').strip()
     
     for reservation in reservations:
         if not reservation.get('enabled', True):
             continue
+        hostname = reservation['hostname']
+        if dynamic_domain:
+            hostname = f"{hostname}.{dynamic_domain}"
         comment = f"  # {reservation['comment']}" if reservation.get('comment') else ""
-        lines.append(f"dhcp-host={reservation['hw_address']},{reservation['hostname']},{reservation['ip_address']}{comment}")
+        lines.append(f"dhcp-host={reservation['hw_address']},{hostname},{reservation['ip_address']}{comment}")
     
     return "\n".join(lines)

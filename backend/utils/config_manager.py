@@ -254,15 +254,23 @@ def update_dhcp_reservation_in_config(
     elif operation == "delete":
         reservations = [r for r in reservations if r['hw_address'] != hw_address]
     
-    # Generate config content
+    # Generate config content for webui-dhcp.conf (dhcp-host lines only; dhcp-range etc. come from main config)
+    # Use hostname.dynamic_domain when set so the name matches dynamic-dns.conf and dnsmasq does not report "multiple names"
+    networks_cfg = get_dhcp_networks_from_config()
+    net_cfg = next((n for n in networks_cfg if n['network'] == network), None)
+    dynamic_domain = (net_cfg.get('dynamic_domain') or '').strip() if net_cfg else ''
+    
     lines = []
     lines.append("# WebUI-managed DHCP configuration")
     lines.append("# Generated automatically - do not edit manually")
     lines.append("")
     
     for res in reservations:
+        hostname = res['hostname']
+        if dynamic_domain:
+            hostname = f"{hostname}.{dynamic_domain}"
         comment_str = f"  # {res['comment']}" if res.get('comment') else ""
-        lines.append(f"dhcp-host={res['hw_address']},{res['hostname']},{res['ip_address']}{comment_str}")
+        lines.append(f"dhcp-host={res['hw_address']},{hostname},{res['ip_address']}{comment_str}")
     
     config_content = "\n".join(lines)
     
