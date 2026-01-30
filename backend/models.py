@@ -606,6 +606,21 @@ class DnsRecord(DnsRecordBase):
         from_attributes = True
 
 
+class DynamicDnsEntry(BaseModel):
+    """Dynamic DNS entry from DHCP leases (read-only; host-record=hostname.domain,ip)"""
+    hostname: str = Field(..., description="Short hostname (e.g., desktop or dhcp-50)")
+    hostname_fqdn: str = Field(..., description="FQDN (hostname.dynamic_domain)")
+    ip_address: str = Field(..., description="IP address")
+    mac_address: str = Field(..., description="MAC address")
+    network: str = Field(..., pattern="^(homelab|lan)$", description="Network name")
+
+
+class DynamicDnsEntriesResponse(BaseModel):
+    """Response for GET dynamic-entries: dynamic_domain (null if disabled) and entries list"""
+    dynamic_domain: Optional[str] = Field(None, description="Dynamic DNS domain if enabled, else null")
+    entries: List[DynamicDnsEntry] = Field(default_factory=list, description="List of dynamic DNS entries")
+
+
 class DhcpNetworkBase(BaseModel):
     """Base DHCP network model"""
     network: str = Field(..., pattern="^(homelab|lan)$", description="Network: homelab or lan")

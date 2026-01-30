@@ -65,3 +65,12 @@ export interface DnsRecordUpdate {
   zone_id?: number;
 }
 
+/** Dynamic DNS entry from DHCP leases (read-only; from dnsmasq dynamic-dns.conf) */
+export interface DynamicDnsEntry {
+  hostname: string;
+  hostname_fqdn: string;
+  ip_address: string;
+  mac_address: string;
+  network: 'homelab' | 'lan';
+}
+

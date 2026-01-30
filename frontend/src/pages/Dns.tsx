@@ -9,7 +9,8 @@ import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh } from 'react-icons/hi';
-import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate } from '../types/dns';
+import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry } from '../types/dns';
+import type { DhcpNetwork } from '../types/dhcp';
 
 export function Dns() {
   const token = localStorage.getItem('access_token');
@@ -52,7 +53,13 @@ export function Dns() {
   const [deleteRecordModalOpen, setDeleteRecordModalOpen] = useState(false);
   const [zoneToDelete, setZoneToDelete] = useState<DnsZone | null>(null);
   const [recordToDelete, setRecordToDelete] = useState<DnsRecord | null>(null);
-  
+
+  // Dynamic DNS (DHCP clients) per network
+  const [dhcpNetworks, setDhcpNetworks] = useState<DhcpNetwork[]>([]);
+  const [dynamicEntriesByNetwork, setDynamicEntriesByNetwork] = useState<Record<'homelab' | 'lan', DynamicDnsEntry[]>>({ homelab: [], lan: [] });
+  const [loadingDynamic, setLoadingDynamic] = useState(false);
+  const [errorDynamic, setErrorDynamic] = useState<string | null>(null);
+
   const { connectionStatus } = useMetrics(token);
 
   useEffect(() => {
@@ -62,7 +69,29 @@ export function Dns() {
     }
     fetchZones();
     fetchServiceStatuses();
+    fetchDynamicDnsData();
   }, [token, navigate]);
+
+  const fetchDynamicDnsData = async () => {
+    setLoadingDynamic(true);
+    setErrorDynamic(null);
+    try {
+      const [networks, homelabEntries, lanEntries] = await Promise.all([
+        apiClient.getDhcpNetworks(),
+        apiClient.getDnsDynamicEntries('homelab'),
+        apiClient.getDnsDynamicEntries('lan'),
+      ]);
+      setDhcpNetworks(networks);
+      setDynamicEntriesByNetwork({ homelab: homelabEntries, lan: lanEntries });
+    } catch (err: unknown) {
+      const message = err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
+        ? String((err.response as { data?: { detail?: string } }).data?.detail)
+        : err instanceof Error ? err.message : 'Failed to load dynamic DNS data';
+      setErrorDynamic(message);
+    } finally {
+      setLoadingDynamic(false);
+    }
+  };
 
   const fetchZones = async () => {
     setLoading(true);
@@ -583,6 +612,61 @@ export function Dns() {
                   </>
                 );
               })()}
+
+              {/* Dynamic DNS (DHCP clients) - HOMELAB */}
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Dynamic DNS (DHCP clients)</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Read-only entries from DHCP leases. Configure <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">dynamic_domain</code> in DHCP for this network to enable.
+                </p>
+                {errorDynamic && (
+                  <Alert color="failure" className="mb-4" onDismiss={() => setErrorDynamic(null)}>
+                    {errorDynamic}
+                  </Alert>
+                )}
+                {loadingDynamic ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                ) : (() => {
+                  const dynamicDomain = dhcpNetworks.find(n => n.network === 'homelab')?.dynamic_domain ?? null;
+                  const entries = dynamicEntriesByNetwork.homelab;
+                  if (!dynamicDomain || dynamicDomain === '') {
+                    return (
+                      <Alert color="info" icon={HiInformationCircle}>
+                        Dynamic DNS is disabled for this network. Set <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">dynamic_domain</code> in DHCP to enable.
+                      </Alert>
+                    );
+                  }
+                  if (entries.length === 0) {
+                    return (
+                      <Alert color="info">
+                        No dynamic DNS entries. Entries appear when DHCP clients have active leases.
+                      </Alert>
+                    );
+                  }
+                  return (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <Table.Head>
+                          <Table.HeadCell>Hostname</Table.HeadCell>
+                          <Table.HeadCell>FQDN</Table.HeadCell>
+                          <Table.HeadCell>IP address</Table.HeadCell>
+                          <Table.HeadCell>MAC</Table.HeadCell>
+                        </Table.Head>
+                        <Table.Body className="divide-y">
+                          {entries.map((e, i) => (
+                            <Table.Row key={`${e.mac_address}-${i}`} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                              <Table.Cell className="font-medium text-gray-900 dark:text-white">{e.hostname}</Table.Cell>
+                              <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.hostname_fqdn}</Table.Cell>
+                              <Table.Cell className="text-gray-900 dark:text-white font-mono text-sm">{e.ip_address}</Table.Cell>
+                              <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.mac_address}</Table.Cell>
+                            </Table.Row>
+                          ))}
+                        </Table.Body>
+                      </Table>
+                    </div>
+                  );
+                })()}
+              </div>
             </Card>
 
             {/* LAN Section */}
@@ -813,6 +897,61 @@ export function Dns() {
                   </>
                 );
               })()}
+
+              {/* Dynamic DNS (DHCP clients) - LAN */}
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Dynamic DNS (DHCP clients)</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Read-only entries from DHCP leases. Configure <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">dynamic_domain</code> in DHCP for this network to enable.
+                </p>
+                {errorDynamic && (
+                  <Alert color="failure" className="mb-4" onDismiss={() => setErrorDynamic(null)}>
+                    {errorDynamic}
+                  </Alert>
+                )}
+                {loadingDynamic ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                ) : (() => {
+                  const dynamicDomain = dhcpNetworks.find(n => n.network === 'lan')?.dynamic_domain ?? null;
+                  const entries = dynamicEntriesByNetwork.lan;
+                  if (!dynamicDomain || dynamicDomain === '') {
+                    return (
+                      <Alert color="info" icon={HiInformationCircle}>
+                        Dynamic DNS is disabled for this network. Set <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">dynamic_domain</code> in DHCP to enable.
+                      </Alert>
+                    );
+                  }
+                  if (entries.length === 0) {
+                    return (
+                      <Alert color="info">
+                        No dynamic DNS entries. Entries appear when DHCP clients have active leases.
+                      </Alert>
+                    );
+                  }
+                  return (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <Table.Head>
+                          <Table.HeadCell>Hostname</Table.HeadCell>
+                          <Table.HeadCell>FQDN</Table.HeadCell>
+                          <Table.HeadCell>IP address</Table.HeadCell>
+                          <Table.HeadCell>MAC</Table.HeadCell>
+                        </Table.Head>
+                        <Table.Body className="divide-y">
+                          {entries.map((e, i) => (
+                            <Table.Row key={`${e.mac_address}-${i}`} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                              <Table.Cell className="font-medium text-gray-900 dark:text-white">{e.hostname}</Table.Cell>
+                              <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.hostname_fqdn}</Table.Cell>
+                              <Table.Cell className="text-gray-900 dark:text-white font-mono text-sm">{e.ip_address}</Table.Cell>
+                              <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.mac_address}</Table.Cell>
+                            </Table.Row>
+                          ))}
+                        </Table.Body>
+                      </Table>
+                    </div>
+                  );
+                })()}
+              </div>
             </Card>
 
             {/* Zone Modal */}

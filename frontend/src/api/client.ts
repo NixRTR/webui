@@ -22,6 +22,7 @@ import type {
   DnsRecord,
   DnsRecordCreate,
   DnsRecordUpdate,
+  DynamicDnsEntry,
 } from '../types/dns';
 import type {
   DhcpNetwork,
@@ -498,6 +499,11 @@ class APIClient {
     const response = await this.client.delete<{ message: string }>(`/api/dns/records/${encodedRecordName}`, {
       params: { network, zone_name: zoneName }
     });
+    return response.data;
+  }
+
+  async getDnsDynamicEntries(network: 'homelab' | 'lan'): Promise<DynamicDnsEntry[]> {
+    const response = await this.client.get<DynamicDnsEntry[]>(`/api/dns/networks/${network}/dynamic-entries`);
     return response.data;
   }
 

@@ -175,7 +175,7 @@ export default function App() {
           }
         />
         <Route
-          path="/dns"
+          path="/settings/dns"
           element={
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
@@ -185,7 +185,7 @@ export default function App() {
           }
         />
         <Route
-          path="/dhcp"
+          path="/settings/dhcp"
           element={
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
@@ -245,7 +245,7 @@ export default function App() {
           }
         />
         <Route
-          path="/worker-status"
+          path="/settings/worker-status"
           element={
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>

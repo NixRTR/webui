@@ -13,15 +13,18 @@ import logging
 from ..database import get_db, DnsConfigHistoryDB
 from ..models import (
     DnsZone, DnsZoneCreate, DnsZoneUpdate,
-    DnsRecord, DnsRecordCreate, DnsRecordUpdate
+    DnsRecord, DnsRecordCreate, DnsRecordUpdate,
+    DynamicDnsEntry,
 )
 from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
+from ..collectors.dhcp import parse_dnsmasq_leases
 from ..utils.dnsmasq_dns import generate_dnsmasq_dns_config
 from ..utils.config_writer import write_dns_config
 from ..utils.config_reader import (
     get_dns_zones_from_config,
-    get_dns_records_from_config
+    get_dns_records_from_config,
+    get_dhcp_networks_from_config,
 )
 from ..utils.config_manager import update_dns_record_in_config
 from ..utils.dnsmasq_parser import parse_dnsmasq_config_file
@@ -253,6 +256,53 @@ def _control_service_via_systemctl(service_name: str, action: str) -> None:
     except (socket.error, OSError) as e:
         logger.error(f"Failed to communicate with service control socket: {e}")
         raise subprocess.CalledProcessError(1, f"socket command", stderr=str(e))
+
+
+@router.get("/networks/{network}/dynamic-entries", response_model=List[DynamicDnsEntry])
+async def get_dynamic_dns_entries(
+    network: str,
+    _: str = Depends(get_current_user),
+) -> List[DynamicDnsEntry]:
+    """Get dynamic DNS entries for a network (from DHCP leases; read-only).
+    
+    When dynamic_domain is set for the network, each DHCP lease becomes a
+    host-record=hostname.domain,ip. This endpoint returns that list.
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        List of dynamic DNS entries (hostname, hostname_fqdn, ip_address, mac_address, network)
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    networks_cfg = get_dhcp_networks_from_config()
+    net_cfg = next((n for n in networks_cfg if n['network'] == network), None)
+    dynamic_domain = (net_cfg.get('dynamic_domain') or '').strip() if net_cfg else ''
+    
+    if not dynamic_domain:
+        return []
+    
+    leases = parse_dnsmasq_leases()
+    entries = []
+    for lease in leases:
+        if lease.network != network:
+            continue
+        # Match Nix logic: short hostname is lease hostname, or "dhcp-{last_octet}" when empty
+        if lease.hostname and not lease.hostname.startswith('client-'):
+            short_hostname = lease.hostname
+        else:
+            short_hostname = f"dhcp-{lease.ip_address.split('.')[-1]}"
+        hostname_fqdn = f"{short_hostname}.{dynamic_domain}"
+        entries.append(DynamicDnsEntry(
+            hostname=short_hostname,
+            hostname_fqdn=hostname_fqdn,
+            ip_address=lease.ip_address,
+            mac_address=lease.mac_address,
+            network=lease.network,
+        ))
+    return entries
 
 
 @router.get("/zones", response_model=List[DnsZone])

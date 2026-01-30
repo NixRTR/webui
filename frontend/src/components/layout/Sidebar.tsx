@@ -71,20 +71,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   // Define Settings menu structure - ordered as specified
   const configChildren = [
     { path: '/settings/cake', label: 'CAKE', icon: HiTrendingUp },
-    { path: '/dhcp', label: 'DHCP', icon: HiServer },
-    { path: '/dns', label: 'DNS', icon: HiGlobe },
+    { path: '/settings/dhcp', label: 'DHCP', icon: HiServer },
+    { path: '/settings/dns', label: 'DNS', icon: HiGlobe },
     { path: '/settings/blocklists-whitelist', label: 'DNS Blocklists', icon: HiShieldCheck },
     { path: '/settings/port-forwarding', label: 'Port Forwarding', icon: HiArrowRight },
     { path: '/settings/dyndns', label: 'Dynamic DNS', icon: HiRefresh },
-    { path: '/worker-status', label: 'Worker Status', icon: HiServer },
+    { path: '/settings/worker-status', label: 'Worker Status', icon: HiServer },
     { path: '/settings/apprise', label: 'Notifications', icon: HiBell },
   ];
   // Auto-expand Settings menu when any child route is active
-  const isConfigActive = isParentActive('/settings', configChildren) ||
-                         isActive('/worker-status') ||
-                         isActive('/dns') ||
-                         isActive('/dhcp') ||
-                         isActive('/traffic-shaping');
+  const isConfigActive = isParentActive('/settings', configChildren);
   useEffect(() => {
     if (isConfigActive) {
       setConfigExpanded(true);
