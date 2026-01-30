@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel
 import subprocess
 import logging
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.sql import cast
 from sqlalchemy.types import String
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -474,6 +474,125 @@ async def delete_override(mac: str, _: str = Depends(get_current_user)) -> dict:
         # Invalidate device overrides cache
         await redis_delete("device_overrides:all")
         return {"status": "ok"}
+
+
+class IpHistoryEntry(BaseModel):
+    """IP address seen for a device (MAC) with last seen time"""
+    ip_address: str
+    last_seen: datetime
+
+
+@router.get("/by-mac/{mac_address}", response_model=NetworkDevice)
+async def get_device_by_mac(
+    mac_address: str,
+    _: str = Depends(get_current_user)
+) -> NetworkDevice:
+    """Get a single device by MAC address (hardware identity).
+    Returns current IP, hostname, network, etc. 404 if not found.
+    """
+    dhcp_leases = parse_dnsmasq_leases()
+    devices = discover_network_devices(dhcp_leases)
+    devices = [d for d in devices if _is_ipv4(d.ip_address)]
+    seen_macs = {d.mac_address.lower() for d in devices}
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(NetworkDeviceDB).where(
+                or_(
+                    cast(NetworkDeviceDB.ip_address, String).like('192.168.2.%'),
+                    cast(NetworkDeviceDB.ip_address, String).like('192.168.3.%')
+                )
+            )
+        )
+        for db_dev in result.scalars().all():
+            mac_lower = str(db_dev.mac_address).lower()
+            if _is_ipv4(str(db_dev.ip_address)) and mac_lower not in seen_macs:
+                from ..collectors.network_devices import NetworkDevice as ND
+                devices.append(ND(
+                    network=db_dev.network,
+                    ip_address=str(db_dev.ip_address),
+                    mac_address=str(db_dev.mac_address),
+                    hostname=db_dev.hostname,
+                    vendor=db_dev.vendor,
+                    is_dhcp=db_dev.is_dhcp,
+                    is_static=db_dev.is_static,
+                    is_online=db_dev.is_online,
+                    last_seen=db_dev.last_seen,
+                ))
+                seen_macs.add(mac_lower)
+
+    from ..utils.redis_client import get_json, set_json
+    from ..config import settings
+    cache_key = "device_overrides:all"
+    cached_overrides = await get_json(cache_key)
+    overrides: Dict[str, Dict] = {}
+    if cached_overrides:
+        overrides = {m.lower(): data for m, data in cached_overrides.items()}
+    else:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(DeviceOverrideDB))
+            all_overrides = {
+                str(ov.mac_address).lower(): {'nickname': ov.nickname, 'favorite': ov.favorite}
+                for ov in result.scalars().all()
+            }
+            if all_overrides:
+                await set_json(cache_key, all_overrides, ttl=settings.redis_cache_ttl_overrides)
+            overrides = all_overrides
+
+    devices_by_mac: Dict[str, NetworkDevice] = {}
+    for device in devices:
+        key = device.mac_address.lower()
+        ov = overrides.get(key)
+        nd = NetworkDevice(
+            network=device.network,
+            ip_address=device.ip_address,
+            mac_address=device.mac_address,
+            hostname=device.hostname,
+            vendor=device.vendor,
+            is_dhcp=device.is_dhcp,
+            is_static=device.is_static,
+            is_online=device.is_online,
+            last_seen=device.last_seen,
+            nickname=ov.get('nickname') if ov else None,
+            favorite=ov.get('favorite', False) if ov else False,
+        )
+        if key in devices_by_mac:
+            existing = devices_by_mac[key]
+            if (nd.last_seen > existing.last_seen) or (
+                nd.last_seen == existing.last_seen and nd.is_online and not existing.is_online
+            ):
+                devices_by_mac[key] = nd
+        else:
+            devices_by_mac[key] = nd
+
+    mac_lower = mac_address.lower()
+    if mac_lower not in devices_by_mac:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return devices_by_mac[mac_lower]
+
+
+@router.get("/by-mac/{mac_address}/ip-history", response_model=List[IpHistoryEntry])
+async def get_device_ip_history(
+    mac_address: str,
+    _: str = Depends(get_current_user)
+) -> List[IpHistoryEntry]:
+    """Get IP address history for a device (MAC). From port scan records."""
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(
+                DevicePortScanDB.ip_address,
+                func.max(DevicePortScanDB.scan_started_at).label("last_seen"),
+            )
+            .where(DevicePortScanDB.mac_address == mac_address)
+            .group_by(DevicePortScanDB.ip_address)
+            .order_by(func.max(DevicePortScanDB.scan_started_at).desc())
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+    return [
+        IpHistoryEntry(ip_address=str(r.ip_address), last_seen=r.last_seen)
+        for r in rows
+    ]
 
 
 class PortInfo(BaseModel):

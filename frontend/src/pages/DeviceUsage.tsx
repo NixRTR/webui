@@ -710,8 +710,11 @@ export function DeviceUsage() {
                             <Button size="xs" color="blue" onClick={() => openChart(device)}>
                               Chart
                             </Button>
-                            <Button size="xs" color="gray" onClick={() => navigate(`/device-usage/${device.ip_address}`)}>
+                            <Button size="xs" color="gray" onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)}>
                               Details
+                            </Button>
+                            <Button size="xs" color="gray" onClick={() => navigate(`/device-usage/${device.ip_address}`)}>
+                              Usage
                             </Button>
                             <Button
                               size="xs"
@@ -807,8 +810,11 @@ export function DeviceUsage() {
                       <Button size="xs" color="blue" onClick={() => openChart(device)} className="flex-1">
                         Chart
                       </Button>
-                      <Button size="xs" color="gray" onClick={() => navigate(`/device-usage/${device.ip_address}`)} className="flex-1">
+                      <Button size="xs" color="gray" onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)} className="flex-1">
                         Details
+                      </Button>
+                      <Button size="xs" color="gray" onClick={() => navigate(`/device-usage/${device.ip_address}`)} className="flex-1">
+                        Usage
                       </Button>
                       <Button
                         size="xs"

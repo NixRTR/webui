@@ -11,6 +11,7 @@ const Network = lazy(() => import('./pages/Network').then(m => ({ default: m.Net
 const Clients = lazy(() => import('./pages/Clients').then(m => ({ default: m.Clients })));
 const DeviceUsage = lazy(() => import('./pages/DeviceUsage').then(m => ({ default: m.DeviceUsage })));
 const ConnectionDetails = lazy(() => import('./pages/ConnectionDetails').then(m => ({ default: m.ConnectionDetails })));
+const DeviceDetails = lazy(() => import('./pages/DeviceDetails').then(m => ({ default: m.DeviceDetails })));
 const System = lazy(() => import('./pages/System').then(m => ({ default: m.System })));
 const SystemInfo = lazy(() => import('./pages/SystemInfo').then(m => ({ default: m.SystemInfo })));
 const Documentation = lazy(() => import('./pages/Documentation').then(m => ({ default: m.Documentation })));
@@ -88,6 +89,16 @@ export default function App() {
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
                 <ConnectionDetails sourcePage="device-usage" />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/devices/by-mac/:macAddress"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <DeviceDetails />
               </Suspense>
             </ProtectedRoute>
           }

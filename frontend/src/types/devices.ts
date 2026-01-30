@@ -1,6 +1,27 @@
 /**
- * Device port scanning types
+ * Device and port scanning types
  */
+
+/** Single device (same shape as one item from GET /api/devices/all) */
+export interface NetworkDevice {
+  network: string;
+  ip_address: string;
+  mac_address: string;
+  hostname: string;
+  vendor: string | null;
+  is_dhcp: boolean;
+  is_static: boolean;
+  is_online: boolean;
+  last_seen: string;
+  nickname?: string | null;
+  favorite?: boolean;
+}
+
+/** IP address seen for a device (MAC) with last seen time */
+export interface IpHistoryEntry {
+  ip_address: string;
+  last_seen: string;
+}
 
 export type PortScanStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 

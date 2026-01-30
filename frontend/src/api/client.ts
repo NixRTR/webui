@@ -57,6 +57,8 @@ import type {
   WhitelistConfigUpdate,
 } from '../types/whitelist';
 import type {
+  NetworkDevice,
+  IpHistoryEntry,
   PortScanResult,
   PortScanTriggerResponse,
 } from '../types/devices';
@@ -670,6 +672,17 @@ class APIClient {
 
   async updateWhitelist(network: 'homelab' | 'lan', config: WhitelistConfigUpdate): Promise<WhitelistConfig> {
     const response = await this.client.put<WhitelistConfig>(`/api/whitelist/${network}`, config);
+    return response.data;
+  }
+
+  // Device by MAC (for Device Details page)
+  async getDeviceByMac(macAddress: string): Promise<NetworkDevice> {
+    const response = await this.client.get<NetworkDevice>(`/api/devices/by-mac/${encodeURIComponent(macAddress)}`);
+    return response.data;
+  }
+
+  async getDeviceIpHistory(macAddress: string): Promise<IpHistoryEntry[]> {
+    const response = await this.client.get<IpHistoryEntry[]>(`/api/devices/by-mac/${encodeURIComponent(macAddress)}/ip-history`);
     return response.data;
   }
 
