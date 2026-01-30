@@ -254,6 +254,11 @@ def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
     webui_config_path = f"/var/lib/dnsmasq/{network}/webui-dhcp.conf"
     if os.path.exists(webui_config_path):
         try:
+            # Get dynamic domain to strip it from hostnames when reading
+            networks_cfg = get_dhcp_networks_from_config()
+            net_cfg = next((n for n in networks_cfg if n['network'] == network), None)
+            dynamic_domain = (net_cfg.get('dynamic_domain') or '').strip() if net_cfg else ''
+            
             with open(webui_config_path, 'r') as f:
                 content = f.read()
             
@@ -265,6 +270,11 @@ def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
                 hostname = match.group(2).strip()
                 ip_address = match.group(3).strip()
                 comment = match.group(4).strip() if match.group(4) else ""
+                
+                # Strip dynamic domain suffix if present (it was added when writing)
+                # This ensures we store the base hostname, not the FQDN
+                if dynamic_domain and hostname.endswith(f".{dynamic_domain}"):
+                    hostname = hostname[:-len(f".{dynamic_domain}")]
                 
                 # Override or add reservation from WebUI config
                 reservations[hw_address] = {

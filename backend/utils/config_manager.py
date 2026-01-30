@@ -268,7 +268,10 @@ def update_dhcp_reservation_in_config(
     for res in reservations:
         hostname = res['hostname']
         if dynamic_domain:
-            hostname = f"{hostname}.{dynamic_domain}"
+            # Only append dynamic domain if hostname doesn't already end with it
+            # This prevents duplicate domain suffixes when reading and rewriting config
+            if not hostname.endswith(f".{dynamic_domain}"):
+                hostname = f"{hostname}.{dynamic_domain}"
         comment_str = f"  # {res['comment']}" if res.get('comment') else ""
         lines.append(f"dhcp-host={res['hw_address']},{hostname},{res['ip_address']}{comment_str}")
     
