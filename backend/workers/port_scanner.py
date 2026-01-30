@@ -125,7 +125,8 @@ def _make_run_scan(mac_address: str, ip_address: str):
                         await error_session.commit()
                 
                 return {'status': 'error', 'error': str(e)}
-        return _run_scan
+
+    return _run_scan
 
 
 @app.task(name='backend.workers.port_scanner.scan_device_ports_task', bind=True)
