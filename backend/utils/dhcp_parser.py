@@ -158,6 +158,8 @@ def parse_dhcp_reservations_nix_file(network: str) -> List[Dict[str, str]]:
     
     Returns a list of reservation dicts with keys hostname, hwAddress, ipAddress, comment.
     Returns [] if the file does not exist or cannot be parsed (backward compatibility).
+    Comment lines (whole lines starting with #) are stripped before parsing so that
+    format/example lines in comments are not mistaken for real reservations.
     """
     file_path = get_dhcp_reservations_file_path(network)
     if not file_path or not os.path.exists(file_path):
@@ -169,8 +171,14 @@ def parse_dhcp_reservations_nix_file(network: str) -> List[Dict[str, str]]:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
+        # Strip whole-line comments so "Format: [ { hostname = \"name\"; ... } ]" etc. are not parsed
+        lines = content.split('\n')
+        content_no_comments = '\n'.join(
+            line for line in lines
+            if not line.strip().startswith('#')
+        )
         # File is a Nix list: [ { hostname = "x"; hwAddress = "mac"; ... } ... ]
-        list_match = re.search(r'\[(.*)\]', content, re.DOTALL)
+        list_match = re.search(r'\[(.*)\]', content_no_comments, re.DOTALL)
         if not list_match:
             return []
         reservations_block = list_match.group(1)
