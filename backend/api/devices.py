@@ -3,7 +3,7 @@ Network devices API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 import subprocess
 import logging
