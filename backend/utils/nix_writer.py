@@ -47,8 +47,9 @@ def format_nix_list(items: List[Any], indent: int = 0) -> str:
         else:
             item_str = json.dumps(item)
         
-        suffix = ";" if i < len(items) - 1 else ""
-        lines.append(f"{indent_str}  {item_str}{suffix}")
+        # In Nix, list items are space-separated, not semicolon-separated
+        # Semicolons are only used within attribute sets (dicts), not between list items
+        lines.append(f"{indent_str}  {item_str}")
     lines.append(f"{indent_str}]")
     return "\n".join(lines)
 
