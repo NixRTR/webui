@@ -12,10 +12,16 @@ from .config_reader import (
 )
 from .dnsmasq_dns import generate_dnsmasq_dns_config
 from .dnsmasq_dhcp import generate_dnsmasq_dhcp_config
-from .config_writer import write_dns_config, write_dhcp_config, write_dns_nix_config, write_dhcp_nix_config
+from .config_writer import (
+    write_dns_config,
+    write_dhcp_config,
+    write_dns_nix_config,
+    write_dhcp_nix_config,
+    write_dhcp_reservations_nix_config,
+)
 from .dns import parse_dns_nix_file
 from .dhcp_parser import parse_dhcp_nix_file
-from .nix_writer import format_nix_dict
+from .nix_writer import format_nix_dict, format_nix_list
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -263,14 +269,7 @@ def update_dhcp_reservation_in_config(
     # Write to webui-dhcp.conf for immediate dnsmasq reload
     write_dhcp_config(network, config_content)
     
-    # Also write to Nix file for declarative config
-    # Read current Nix file to get network settings
-    nix_config = parse_dhcp_nix_file(network)
-    if not nix_config:
-        logger.warning(f"Could not read DHCP Nix file for {network}, skipping Nix write")
-        return
-    
-    # Convert reservations to Nix format
+    # Write reservations-only Nix file for declarative config
     nix_reservations = []
     for res in reservations:
         nix_reservations.append({
@@ -279,28 +278,49 @@ def update_dhcp_reservation_in_config(
             'ipAddress': res['ip_address'],
             'comment': res.get('comment', '')
         })
+    nix_list_content = format_nix_list(nix_reservations, indent=0)
+    write_dhcp_reservations_nix_config(network, nix_list_content)
+
+
+def update_dhcp_network_in_config(
+    network: str,
+    enable: bool,
+    start: str,
+    end: str,
+    lease_time: str,
+    dns_servers: Optional[List[str]] = None,
+    dynamic_domain: Optional[str] = None
+) -> None:
+    """Update DHCP network settings in the main dhcp-<network>.nix file (no reservations).
     
-    # Determine Nix file path
-    if network == "homelab":
-        nix_file_path = settings.dhcp_homelab_file
-    elif network == "lan":
-        nix_file_path = settings.dhcp_lan_file
-    else:
-        logger.warning(f"Invalid network {network}, skipping Nix file write")
-        return
+    Writes enable, start, end, leaseTime, dnsServers, dynamicDomain and keeps
+    reservations = import ./dhcp-reservations-<network>.nix; so reservations are unchanged.
     
-    # Write to Nix file via socket service
+    Args:
+        network: Network name ("homelab" or "lan")
+        enable: Whether DHCP is enabled
+        start: Start IP address
+        end: End IP address
+        lease_time: Lease time string (e.g. "1h")
+        dns_servers: List of DNS server IPs (default [])
+        dynamic_domain: Dynamic DNS domain or empty string
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
     nix_data = {
-        'enable': nix_config.get('enable', True),
-        'start': nix_config.get('start', ''),
-        'end': nix_config.get('end', ''),
-        'leaseTime': nix_config.get('leaseTime', '1h'),
-        'dnsServers': nix_config.get('dnsServers', []),
-        'dynamicDomain': nix_config.get('dynamicDomain', ''),
-        'reservations': nix_reservations
+        'enable': enable,
+        'start': start,
+        'end': end,
+        'leaseTime': lease_time,
+        'dnsServers': dns_servers if dns_servers is not None else [],
+        'dynamicDomain': dynamic_domain if dynamic_domain is not None else '',
     }
-    nix_formatted = format_nix_dict(nix_data, indent=0)
-    write_dhcp_nix_config(network, nix_formatted)
+    body = format_nix_dict(nix_data, indent=0)
+    # Insert reservations import before final "}" so main file still references the reservations file
+    last_brace = body.rfind('}')
+    content = body[:last_brace] + "  reservations = import ./dhcp-reservations-" + network + ".nix;\n" + body[last_brace:]
+    write_dhcp_nix_config(network, content)
 
 
 def _resolve_cname_from_records(records: List[Dict], target: str) -> Optional[str]:

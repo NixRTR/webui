@@ -196,12 +196,7 @@ export function Dhcp() {
       closeNetworkModal();
     } catch (err: any) {
       const errorMessage = err?.response?.data?.detail || err.message || 'Failed to save network';
-      // Check if error indicates networks must be configured in router-config.nix
-      if (errorMessage.includes('router-config.nix') || errorMessage.includes('cannot be')) {
-        setNetworkError('DHCP networks cannot be managed via WebUI. They must be configured in router-config.nix. Only reservations can be managed through the WebUI.');
-      } else {
-        setNetworkError(errorMessage);
-      }
+      setNetworkError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -216,13 +211,7 @@ export function Dhcp() {
       setDeleteNetworkModalOpen(false);
       setNetworkToDelete(null);
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.detail || err.message || 'Failed to delete network';
-      // Check if error indicates networks must be configured in router-config.nix
-      if (errorMessage.includes('router-config.nix') || errorMessage.includes('cannot be')) {
-        setError('DHCP networks cannot be deleted via WebUI. They must be removed from router-config.nix. Only reservations can be managed through the WebUI.');
-      } else {
-        setError(errorMessage);
-      }
+      setError(err?.response?.data?.detail || err.message || 'Failed to delete network');
     }
   };
 
@@ -238,7 +227,7 @@ export function Dhcp() {
     setReservations([]);
   };
 
-  const openReservationEditModal = (reservation?: DhcpReservation) => {
+  const openReservationEditModal = async (reservation?: DhcpReservation) => {
     if (reservation) {
       setEditingReservation(reservation);
       setReservationHostname(reservation.hostname);
@@ -253,9 +242,25 @@ export function Dhcp() {
       setReservationIpAddress('');
       setReservationComment('');
       setReservationEnabled(true);
+      // When adding a new reservation, suggest IP if we have a network and will fetch when MAC is entered
+      if (selectedNetwork) {
+        // Pre-fill will happen when user enters MAC via onSuggestIp below
+      }
     }
     setReservationError(null);
     setReservationEditModalOpen(true);
+  };
+
+  const fetchSuggestIp = async () => {
+    if (!selectedNetwork || !reservationHwAddress.trim()) return;
+    try {
+      const { ip_address } = await apiClient.getDhcpSuggestIp(selectedNetwork.network, reservationHwAddress.trim());
+      if (ip_address) {
+        setReservationIpAddress(ip_address);
+      }
+    } catch {
+      // Ignore errors (e.g. no suggestion available)
+    }
   };
 
   const closeReservationEditModal = () => {
@@ -1074,14 +1079,27 @@ export function Dhcp() {
                   </div>
                   <div>
                     <Label htmlFor="reservationIpAddress" value="IP Address *" />
-                    <TextInput
-                      id="reservationIpAddress"
-                      value={reservationIpAddress}
-                      onChange={(e) => setReservationIpAddress(e.target.value)}
-                      placeholder="192.168.2.50"
-                      required
-                      className="mt-1 font-mono"
-                    />
+                    <div className="mt-1 flex gap-2 items-center">
+                      <TextInput
+                        id="reservationIpAddress"
+                        value={reservationIpAddress}
+                        onChange={(e) => setReservationIpAddress(e.target.value)}
+                        placeholder="192.168.2.50"
+                        required
+                        className="font-mono flex-1"
+                      />
+                      {!editingReservation && selectedNetwork && (
+                        <Button
+                          color="light"
+                          size="sm"
+                          onClick={fetchSuggestIp}
+                          disabled={!reservationHwAddress.trim()}
+                          title="Fill IP from current lease or device history"
+                        >
+                          Suggest IP
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label htmlFor="reservationComment" value="Comment (optional)" />

@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from ..config import settings
 from .dns import parse_nix_config, parse_dns_nix_file, extract_base_domain
 from .dhcp import parse_router_config_dhcp
-from .dhcp_parser import parse_dhcp_nix_file
+from .dhcp_parser import parse_dhcp_nix_file, parse_dhcp_reservations_nix_file, get_dhcp_reservations_file_path
 from .dnsmasq_parser import parse_dnsmasq_config_file
 
 logger = logging.getLogger(__name__)
@@ -217,9 +217,10 @@ def get_dhcp_networks_from_config() -> List[Dict]:
 
 
 def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
-    """Get DHCP reservations from config files (router-config.nix + webui-dhcp.conf)
+    """Get DHCP reservations from config files.
     
-    Merges reservations from both sources, with WebUI config taking precedence.
+    Prefers the reservations-only Nix file (dhcp-reservations-<network>.nix) if it exists;
+    otherwise reads from the main dhcp-<network>.nix. Then merges with webui-dhcp.conf overrides.
     
     Args:
         network: Network name ("homelab" or "lan")
@@ -229,21 +230,25 @@ def get_dhcp_reservations_from_config(network: str) -> List[Dict]:
     """
     reservations = {}  # hw_address -> reservation dict (to handle overrides)
     
-    # Read from dnsmasq/dhcp-{network}.nix
-    config = parse_dhcp_nix_file(network)
-    if config:
-        router_reservations = config.get('reservations', [])
-        
-        for res in router_reservations:
-            hw_address = res['hwAddress']
-            reservations[hw_address] = {
-                'hostname': res['hostname'],
-                'hw_address': hw_address,
-                'ip_address': res['ipAddress'],
-                'comment': res.get('comment', ''),
-                'network': network,
-                'enabled': True
-            }
+    # Prefer reservations-only Nix file if it exists
+    res_file = get_dhcp_reservations_file_path(network)
+    if res_file and os.path.exists(res_file):
+        router_reservations = parse_dhcp_reservations_nix_file(network)
+    else:
+        # Fallback: read from main dhcp-<network>.nix (backward compatibility)
+        config = parse_dhcp_nix_file(network)
+        router_reservations = config.get('reservations', []) if config else []
+    
+    for res in router_reservations:
+        hw_address = res['hwAddress']
+        reservations[hw_address] = {
+            'hostname': res['hostname'],
+            'hw_address': hw_address,
+            'ip_address': res['ipAddress'],
+            'comment': res.get('comment', ''),
+            'network': network,
+            'enabled': True
+        }
     
     # Read from WebUI-managed dnsmasq config (overrides/additions)
     webui_config_path = f"/var/lib/dnsmasq/{network}/webui-dhcp.conf"

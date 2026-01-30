@@ -88,11 +88,16 @@ def parse_dhcp_nix_file(network: str) -> Optional[Dict]:
         if domain_match:
             config['dynamicDomain'] = domain_match.group(1)
         
-        # Extract reservations
-        reservations_match = re.search(r'reservations\s*=\s*\[(.*?)\]', content, re.DOTALL)
-        if reservations_match:
-            reservations_block = reservations_match.group(1)
-            config['reservations'] = _parse_dhcp_reservations(reservations_block)
+        # Extract reservations: either inline list or import
+        reservations_import_match = re.search(r'reservations\s*=\s*import\s+', content)
+        if reservations_import_match:
+            # Reservations are in a separate file; main file has no inline list
+            config['reservations'] = []
+        else:
+            reservations_match = re.search(r'reservations\s*=\s*\[(.*?)\]', content, re.DOTALL)
+            if reservations_match:
+                reservations_block = reservations_match.group(1)
+                config['reservations'] = _parse_dhcp_reservations(reservations_block)
         
         logger.debug(f"Parsed DHCP config for {network}: {len(config['reservations'])} reservations")
         return config
@@ -137,3 +142,39 @@ def _parse_dhcp_reservations(content: str) -> List[Dict[str, str]]:
         })
     
     return reservations
+
+
+def get_dhcp_reservations_file_path(network: str) -> Optional[str]:
+    """Return the path to the reservations-only Nix file for a network, or None if invalid."""
+    if network == "homelab":
+        return settings.dhcp_reservations_homelab_file
+    if network == "lan":
+        return settings.dhcp_reservations_lan_file
+    return None
+
+
+def parse_dhcp_reservations_nix_file(network: str) -> List[Dict[str, str]]:
+    """Parse the reservations-only Nix file for a network (dhcp-reservations-<network>.nix).
+    
+    Returns a list of reservation dicts with keys hostname, hwAddress, ipAddress, comment.
+    Returns [] if the file does not exist or cannot be parsed (backward compatibility).
+    """
+    file_path = get_dhcp_reservations_file_path(network)
+    if not file_path or not os.path.exists(file_path):
+        logger.debug(f"DHCP reservations file not found for {network}: {file_path}")
+        return []
+    
+    logger.debug(f"Parsing DHCP reservations file: {file_path}")
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # File is a Nix list: [ { hostname = "x"; hwAddress = "mac"; ... } ... ]
+        list_match = re.search(r'\[(.*)\]', content, re.DOTALL)
+        if not list_match:
+            return []
+        reservations_block = list_match.group(1)
+        return _parse_dhcp_reservations(reservations_block)
+    except Exception as e:
+        logger.warning(f"Error parsing DHCP reservations file {file_path}: {e}")
+        return []

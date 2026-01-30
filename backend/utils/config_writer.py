@@ -115,6 +115,25 @@ def write_dhcp_nix_config(network: str, config_content: str) -> None:
     _send_command(f"write-nix-dhcp {network}", config_content)
 
 
+def write_dhcp_reservations_nix_config(network: str, config_content: str) -> None:
+    """Write DHCP reservations Nix file via socket-activated helper service.
+    
+    Writes to dhcp-reservations-<network>.nix (list of reservation attrsets).
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        config_content: Nix list content to write
+        
+    Raises:
+        subprocess.CalledProcessError: If the command fails
+        ValueError: If network is invalid
+    """
+    if network not in ['homelab', 'lan']:
+        raise ValueError(f"Invalid network: {network}. Must be 'homelab' or 'lan'")
+    
+    _send_command(f"write-nix-dhcp-reservations {network}", config_content)
+
+
 def write_cake_nix_config(config_content: str) -> None:
     """Write CAKE Nix configuration file via socket-activated helper service
     

@@ -10,7 +10,9 @@ import logging
 import socket
 import os
 
-from ..database import get_db, DhcpConfigHistoryDB
+from ..database import get_db, DhcpConfigHistoryDB, AsyncSessionLocal, DevicePortScanDB
+from sqlalchemy import func
+import ipaddress
 from ..models import (
     DhcpNetwork, DhcpNetworkCreate, DhcpNetworkUpdate,
     DhcpReservation, DhcpReservationCreate, DhcpReservationUpdate
@@ -23,7 +25,7 @@ from ..utils.config_reader import (
     get_dhcp_networks_from_config,
     get_dhcp_reservations_from_config
 )
-from ..utils.config_manager import update_dhcp_reservation_in_config
+from ..utils.config_manager import update_dhcp_reservation_in_config, update_dhcp_network_in_config
 import json
 from datetime import datetime
 
@@ -233,6 +235,95 @@ async def get_networks(
     return result_networks
 
 
+@router.get("/suggest-ip")
+async def suggest_ip(
+    network: str,
+    mac: str,
+    _: str = Depends(get_current_user),
+) -> dict:
+    """Suggest an IP address for a device (MAC) when adding a reservation.
+    
+    1. Tries dnsmasq lease file for the network; if the MAC has a lease, returns that IP.
+    2. Fallback: device IP history (DevicePortScanDB) - most recent IP for this MAC that lies in the network's range.
+    
+    Returns:
+        { "ip_address": "192.168.2.50" } or { "ip_address": null }
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    if not mac or not mac.strip():
+        raise HTTPException(status_code=400, detail="MAC address is required")
+    
+    mac_normalized = mac.strip().lower()
+    suggested_ip = None
+    
+    # 1. Try lease file: /var/lib/dnsmasq/<network>/dhcp.leases (format: expiry mac ip hostname client-id)
+    lease_path = f"/var/lib/dnsmasq/{network}/dhcp.leases"
+    if os.path.exists(lease_path):
+        try:
+            with open(lease_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    parts = line.split()
+                    if len(parts) < 3:
+                        continue
+                    try:
+                        _expiry, file_mac, ip = parts[0], parts[1], parts[2]
+                        if file_mac.lower() == mac_normalized:
+                            suggested_ip = ip
+                            break
+                    except (ValueError, IndexError):
+                        continue
+        except (IOError, OSError):
+            pass
+    
+    # 2. Fallback: DevicePortScanDB - most recent IP for this MAC that is in the network's subnet
+    if suggested_ip is None:
+        networks_cfg = get_dhcp_networks_from_config()
+        net_cfg = next((n for n in networks_cfg if n['network'] == network), None)
+        if net_cfg and net_cfg.get('start') and net_cfg.get('end'):
+            try:
+                start_ip = ipaddress.ip_address(net_cfg['start'])
+                end_ip = ipaddress.ip_address(net_cfg['end'])
+            except ValueError:
+                start_ip = end_ip = None
+            if start_ip is not None and end_ip is not None:
+                async with AsyncSessionLocal() as session:
+                    stmt = (
+                        select(
+                            DevicePortScanDB.ip_address,
+                            func.max(DevicePortScanDB.scan_started_at).label("last_seen"),
+                        )
+                        .where(DevicePortScanDB.mac_address == mac_normalized)
+                        .group_by(DevicePortScanDB.ip_address)
+                        .order_by(func.max(DevicePortScanDB.scan_started_at).desc())
+                    )
+                    result = await session.execute(stmt)
+                    rows = result.all()
+                    for r in rows:
+                        try:
+                            ip_obj = ipaddress.ip_address(str(r.ip_address))
+                            if start_ip <= ip_obj <= end_ip:
+                                suggested_ip = str(r.ip_address)
+                                break
+                        except ValueError:
+                            continue
+        # Also try discover_network_devices for current lease-like data
+        if suggested_ip is None:
+            from ..collectors.dhcp import parse_dnsmasq_leases
+            from ..collectors.network_devices import discover_network_devices
+            dhcp_leases = parse_dnsmasq_leases()
+            devices = discover_network_devices(dhcp_leases)
+            for d in devices:
+                if d.mac_address.lower() == mac_normalized and d.network == network:
+                    suggested_ip = d.ip_address
+                    break
+    
+    return {"ip_address": suggested_ip}
+
+
 @router.post("/networks", response_model=DhcpNetwork)
 async def create_network(
     network: DhcpNetworkCreate,
@@ -303,22 +394,60 @@ async def update_network(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> DhcpNetwork:
-    """Update a DHCP network (not supported - networks come from router-config.nix)
-    
-    DHCP network settings (start, end, lease_time, etc.) are defined in router-config.nix
-    and cannot be modified via WebUI. Only reservations can be managed through the WebUI.
+    """Update DHCP network settings (writes to dhcp-<network>.nix and reloads dnsmasq).
     
     Args:
         network: Network name ("homelab" or "lan")
-        network_update: Update data
+        network_update: Update data (enabled, start, end, lease_time, dns_servers, dynamic_domain)
         
     Returns:
-        Error response
+        Updated DHCP network (read back from config)
     """
-    raise HTTPException(
-        status_code=400,
-        detail="DHCP network settings cannot be modified via WebUI. They must be changed in router-config.nix. Only reservations can be managed through the WebUI."
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    # Validate required fields
+    if not network_update.start or not network_update.end:
+        raise HTTPException(status_code=400, detail="Start and end IP addresses are required")
+    
+    try:
+        update_dhcp_network_in_config(
+            network=network,
+            enable=network_update.enabled if network_update.enabled is not None else True,
+            start=network_update.start,
+            end=network_update.end,
+            lease_time=network_update.lease_time or '1h',
+            dns_servers=network_update.dns_servers,
+            dynamic_domain=network_update.dynamic_domain or ''
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    await _write_dhcp_config_and_reload(
+        db, network, username, "update",
+        {"network": network, "settings": network_update.model_dump(exclude_none=True)}
     )
+    
+    # Return updated network (read back from config)
+    networks = get_dhcp_networks_from_config()
+    dhcp_network = next((n for n in networks if n['network'] == network), None)
+    if not dhcp_network:
+        raise HTTPException(status_code=500, detail=f"Network {network} not found after update")
+    
+    net_dict = {
+        'id': hash(f"dhcp:{network}") % (2**31),
+        'network': dhcp_network['network'],
+        'enabled': dhcp_network.get('enabled', True),
+        'start': dhcp_network.get('start', ''),
+        'end': dhcp_network.get('end', ''),
+        'lease_time': dhcp_network.get('lease_time', '1h'),
+        'dns_servers': dhcp_network.get('dns_servers', []),
+        'dynamic_domain': dhcp_network.get('dynamic_domain', ''),
+        'original_config_path': None,
+        'created_at': None,
+        'updated_at': None,
+    }
+    return DhcpNetwork.model_validate(net_dict)
 
 
 @router.delete("/networks/{network}")

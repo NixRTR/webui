@@ -530,6 +530,13 @@ class APIClient {
   }
 
   // DHCP Reservation methods
+  async getDhcpSuggestIp(network: string, mac: string): Promise<{ ip_address: string | null }> {
+    const response = await this.client.get<{ ip_address: string | null }>('/api/dhcp/suggest-ip', {
+      params: { network, mac },
+    });
+    return response.data;
+  }
+
   async getDhcpReservations(network: string): Promise<DhcpReservation[]> {
     const response = await this.client.get<DhcpReservation[]>(`/api/dhcp/networks/${network}/reservations`);
     return response.data;

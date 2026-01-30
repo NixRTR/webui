@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     dns_lan_file: str = "/etc/nixos/config/dnsmasq/dns-lan.nix"
     dhcp_homelab_file: str = "/etc/nixos/config/dnsmasq/dhcp-homelab.nix"
     dhcp_lan_file: str = "/etc/nixos/config/dnsmasq/dhcp-lan.nix"
+    dhcp_reservations_homelab_file: str = "/etc/nixos/config/dnsmasq/dhcp-reservations-homelab.nix"
+    dhcp_reservations_lan_file: str = "/etc/nixos/config/dnsmasq/dhcp-reservations-lan.nix"
     cake_config_file: str = "/etc/nixos/config/cake.nix"
     apprise_config_file: str = "/etc/nixos/config/apprise.nix"
     dyndns_config_file: str = "/etc/nixos/config/dyndns.nix"
