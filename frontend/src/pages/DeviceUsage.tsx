@@ -17,7 +17,6 @@ interface NetworkDevice {
   ip_address: string;
   mac_address: string;
   hostname: string;
-  nickname?: string | null;
   vendor: string | null;
   is_dhcp: boolean;
   is_static: boolean;
@@ -345,9 +344,6 @@ export function DeviceUsage() {
     }
   };
 
-  const getDisplayName = (device: NetworkDevice): string => {
-    return device.nickname || device.hostname || 'Unknown';
-  };
 
   // Helper function to truncate text with tooltip
   const TruncatedText = ({ text, maxLength = 20 }: { text: string; maxLength?: number }) => {
@@ -391,7 +387,7 @@ export function DeviceUsage() {
       device.hostname?.toLowerCase().includes(search.toLowerCase()) ||
       device.ip_address.includes(search) ||
       device.mac_address.includes(search) ||
-      (device.nickname?.toLowerCase().includes(search.toLowerCase()))
+      (device.hostname?.toLowerCase().includes(search.toLowerCase()))
     );
     
     // Status filter
@@ -422,7 +418,7 @@ export function DeviceUsage() {
     let comparison = 0;
     switch (sortColumn) {
       case 'hostname':
-        comparison = getDisplayName(a).localeCompare(getDisplayName(b));
+        comparison = (a.hostname || '').localeCompare(b.hostname || '');
         break;
       case 'mac':
         comparison = a.mac_address.localeCompare(b.mac_address);
@@ -683,7 +679,7 @@ export function DeviceUsage() {
                     return (
                       <Table.Row key={device.mac_address} className={!device.is_online ? 'opacity-50' : ''}>
                         <Table.Cell className="font-medium max-w-[200px]">
-                          <TruncatedText text={getDisplayName(device)} maxLength={20} />
+                          <TruncatedText text={device.hostname || 'Unknown'} maxLength={20} />
                         </Table.Cell>
                         <Table.Cell className="font-mono text-sm hidden lg:table-cell">
                           {device.mac_address}
@@ -791,7 +787,7 @@ export function DeviceUsage() {
                         : 'bg-gray-50 border-gray-200 dark:bg-gray-900 dark:border-gray-700 opacity-60'
                     }`}
                   >
-                    <div className="font-semibold text-lg mb-2">{getDisplayName(device)}</div>
+                    <div className="font-semibold text-lg mb-2">{device.hostname || 'Unknown'}</div>
                     <div className="text-sm space-y-1 mb-3">
                       <div>MAC: <span className="font-mono">{device.mac_address}</span></div>
                       <div>IP: {device.ip_address}</div>
@@ -838,7 +834,7 @@ export function DeviceUsage() {
           {/* Chart Modal */}
           <Modal show={chartModalOpen} onClose={() => setChartModalOpen(false)} size="xl">
             <Modal.Header>
-              Bandwidth Usage - {selectedDevice ? getDisplayName(selectedDevice) : ''}
+              Bandwidth Usage - {selectedDevice ? (selectedDevice.hostname || 'Unknown') : ''}
             </Modal.Header>
             <Modal.Body className="max-h-[80vh] overflow-y-auto">
               <div className="space-y-4">

@@ -186,12 +186,12 @@ class NetworkDeviceDB(Base):
 
 
 class DeviceOverrideDB(Base):
-    """Per-device overrides (nickname, favorite)"""
+    """Per-device overrides (hostname, favorite)"""
     __tablename__ = "device_overrides"
     
     id = Column(Integer, primary_key=True, index=True)
     mac_address = Column(MACADDR, nullable=False, unique=True, index=True)
-    nickname = Column(String(255))
+    hostname = Column(String(255))
     favorite = Column(Boolean, default=False)
 
 

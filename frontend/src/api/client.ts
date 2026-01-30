@@ -693,6 +693,22 @@ class APIClient {
     return response.data;
   }
 
+  // Device override (hostname syncs to DHCP / dynamic DNS)
+  async setDeviceHostname(
+    macAddress: string,
+    hostname: string,
+    network: 'homelab' | 'lan',
+    ipAddress?: string
+  ): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/api/devices/override', {
+      mac_address: macAddress,
+      hostname: hostname.trim() || null,
+      network,
+      ip_address: ipAddress ?? undefined,
+    });
+    return response.data;
+  }
+
   // Device by MAC (for Device Details page)
   async getDeviceByMac(macAddress: string): Promise<NetworkDevice> {
     const response = await this.client.get<NetworkDevice>(`/api/devices/by-mac/${encodeURIComponent(macAddress)}`);

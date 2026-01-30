@@ -2,7 +2,7 @@
  * Device and port scanning types
  */
 
-/** Single device (same shape as one item from GET /api/devices/all) */
+/** Single device (same shape as one item from GET /api/devices/all; hostname is effective) */
 export interface NetworkDevice {
   network: string;
   ip_address: string;
@@ -13,7 +13,6 @@ export interface NetworkDevice {
   is_static: boolean;
   is_online: boolean;
   last_seen: string;
-  nickname?: string | null;
   favorite?: boolean;
 }
 

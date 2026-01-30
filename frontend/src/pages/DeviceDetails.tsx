@@ -172,7 +172,7 @@ export function DeviceDetails() {
     );
   }
 
-  const displayName = device.nickname || device.hostname || device.ip_address || device.mac_address;
+  const displayName = device.hostname || device.ip_address || device.mac_address;
 
   return (
     <div className="flex h-screen">
@@ -215,10 +215,6 @@ export function DeviceDetails() {
               <div className="flex justify-between md:block">
                 <span className="text-gray-500">Hostname</span>
                 <span className="ml-2">{device.hostname || '—'}</span>
-              </div>
-              <div className="flex justify-between md:block">
-                <span className="text-gray-500">Nickname</span>
-                <span className="ml-2">{device.nickname || '—'}</span>
               </div>
               <div className="flex justify-between md:block">
                 <span className="text-gray-500">Vendor</span>

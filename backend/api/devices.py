@@ -43,7 +43,7 @@ router = APIRouter(prefix="/api/devices", tags=["devices"])
 
 
 class NetworkDevice(BaseModel):
-    """Network device information"""
+    """Network device information (hostname is effective: override if set, else discovery)"""
     network: str
     ip_address: str
     mac_address: str
@@ -53,7 +53,6 @@ class NetworkDevice(BaseModel):
     is_static: bool
     is_online: bool
     last_seen: datetime
-    nickname: Optional[str] = None
     favorite: bool = False
 
 
@@ -150,7 +149,7 @@ async def get_all_devices(
             for ov in result.scalars().all():
                 mac_key = str(ov.mac_address).lower()
                 all_overrides[mac_key] = {
-                    'nickname': ov.nickname,
+                    'hostname': ov.hostname,
                     'favorite': ov.favorite
                 }
             
@@ -165,17 +164,18 @@ async def get_all_devices(
     for device in devices:
         key = device.mac_address.lower()
         ov = overrides.get(key)
+        override_hostname = (ov.get('hostname') or '').strip() if ov else None
+        effective_hostname = override_hostname if override_hostname else (device.hostname or '')
         enriched.append(NetworkDevice(
             network=device.network,
             ip_address=device.ip_address,
             mac_address=device.mac_address,
-            hostname=device.hostname,
+            hostname=effective_hostname,
             vendor=device.vendor,
             is_dhcp=device.is_dhcp,
             is_static=device.is_static,
             is_online=device.is_online,
             last_seen=device.last_seen,
-            nickname=ov.get('nickname') if ov else None,
             favorite=ov.get('favorite', False) if ov else False,
         ))
 
@@ -210,8 +210,8 @@ async def get_all_devices(
             except Exception as e:
                 logger.warning(f"Failed to queue scan for new device {device.mac_address}: {e}")
 
-    # Sort: favorites first, then by nickname/hostname
-    enriched.sort(key=lambda d: (not d.favorite, (d.nickname or d.hostname or "").lower()))
+    # Sort: favorites first, then by hostname
+    enriched.sort(key=lambda d: (not d.favorite, (d.hostname or "").lower()))
     return enriched
 
 
@@ -429,8 +429,10 @@ async def unblock_device(req: BlockRequest, _: str = Depends(get_current_user)) 
 
 class OverrideRequest(BaseModel):
     mac_address: str
-    nickname: Optional[str] = None
+    hostname: Optional[str] = None
     favorite: Optional[bool] = None
+    network: Optional[str] = None  # Required when setting hostname, for DHCP reservation sync
+    ip_address: Optional[str] = None  # Optional; used when creating a new reservation
 
 
 @router.get("/overrides")
@@ -438,27 +440,80 @@ async def list_overrides(_: str = Depends(get_current_user)) -> List[OverrideReq
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(DeviceOverrideDB))
         rows = result.scalars().all()
-        return [OverrideRequest(mac_address=str(r.mac_address), nickname=r.nickname, favorite=r.favorite) for r in rows]
+        return [OverrideRequest(mac_address=str(r.mac_address), hostname=r.hostname, favorite=r.favorite) for r in rows]
+
+
+def _get_ip_for_mac_in_network(mac: str, network: str) -> Optional[str]:
+    """Get current IP for a MAC in the given network (from leases or discovery)."""
+    mac_lower = mac.strip().lower()
+    leases = parse_dnsmasq_leases()
+    for lease in leases:
+        if lease.mac_address.lower() == mac_lower and lease.network == network:
+            return lease.ip_address
+    devices = discover_network_devices(leases)
+    for d in devices:
+        if d.mac_address.lower() == mac_lower and d.network == network:
+            return d.ip_address
+    return None
 
 
 @router.post("/override")
-async def upsert_override(req: OverrideRequest, _: str = Depends(get_current_user)) -> dict:
+async def upsert_override(req: OverrideRequest, username: str = Depends(get_current_user)) -> dict:
     if not req.mac_address:
         raise HTTPException(status_code=400, detail="mac_address is required")
+    mac_normalized = req.mac_address.strip().lower()
+    if req.hostname is not None and req.network:
+        if req.network not in ('homelab', 'lan'):
+            raise HTTPException(status_code=400, detail="network must be 'homelab' or 'lan'")
+        from ..utils.config_reader import get_dhcp_reservations_from_config
+        from ..utils.config_manager import update_dhcp_reservation_in_config
+        from ..api.dhcp import _control_service_via_systemctl, NETWORK_SERVICE_MAP
+        reservations = get_dhcp_reservations_from_config(req.network)
+        existing = next((r for r in reservations if (r.get('hw_address') or '').lower() == mac_normalized), None)
+        hostname_value = (req.hostname or '').strip()
+        try:
+            if existing:
+                update_dhcp_reservation_in_config(
+                    req.network, "update", mac_normalized,
+                    hostname=hostname_value if hostname_value else existing.get('hostname'),
+                    ip_address=existing.get('ip_address'),
+                    comment=existing.get('comment') or ''
+                )
+            else:
+                ip_address = req.ip_address or _get_ip_for_mac_in_network(req.mac_address, req.network)
+                if not ip_address:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No IP for this device on this network. Provide ip_address or ensure the device has a lease."
+                    )
+                update_dhcp_reservation_in_config(
+                    req.network, "add", mac_normalized,
+                    hostname=hostname_value or f"dhcp-{ip_address.split('.')[-1]}",
+                    ip_address=ip_address
+                )
+            service_name = f"{NETWORK_SERVICE_MAP[req.network]}.service"
+            _control_service_via_systemctl(service_name, "restart")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.warning(f"DHCP config update failed for %s: %s", req.mac_address, e, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to sync hostname to DHCP: {e}")
     async with AsyncSessionLocal() as session:
-        # Try find existing
         result = await session.execute(select(DeviceOverrideDB).where(DeviceOverrideDB.mac_address == req.mac_address))
         row = result.scalar_one_or_none()
         if row:
-            if req.nickname is not None:
-                row.nickname = req.nickname
+            if req.hostname is not None:
+                row.hostname = (req.hostname or '').strip() or None
             if req.favorite is not None:
                 row.favorite = bool(req.favorite)
         else:
-            row = DeviceOverrideDB(mac_address=req.mac_address, nickname=req.nickname, favorite=bool(req.favorite))
+            row = DeviceOverrideDB(
+                mac_address=req.mac_address,
+                hostname=(req.hostname or '').strip() or None if req.hostname is not None else None,
+                favorite=bool(req.favorite) if req.favorite is not None else False,
+            )
             session.add(row)
         await session.commit()
-        # Invalidate device overrides cache
         await redis_delete("device_overrides:all")
         return {"status": "ok"}
 
@@ -532,7 +587,7 @@ async def get_device_by_mac(
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(DeviceOverrideDB))
             all_overrides = {
-                str(ov.mac_address).lower(): {'nickname': ov.nickname, 'favorite': ov.favorite}
+                str(ov.mac_address).lower(): {'hostname': ov.hostname, 'favorite': ov.favorite}
                 for ov in result.scalars().all()
             }
             if all_overrides:
@@ -543,17 +598,18 @@ async def get_device_by_mac(
     for device in devices:
         key = device.mac_address.lower()
         ov = overrides.get(key)
+        override_hostname = (ov.get('hostname') or '').strip() if ov else None
+        effective_hostname = override_hostname if override_hostname else (device.hostname or '')
         nd = NetworkDevice(
             network=device.network,
             ip_address=device.ip_address,
             mac_address=device.mac_address,
-            hostname=device.hostname,
+            hostname=effective_hostname,
             vendor=device.vendor,
             is_dhcp=device.is_dhcp,
             is_static=device.is_static,
             is_online=device.is_online,
             last_seen=device.last_seen,
-            nickname=ov.get('nickname') if ov else None,
             favorite=ov.get('favorite', False) if ov else False,
         )
         if key in devices_by_mac:

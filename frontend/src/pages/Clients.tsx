@@ -9,21 +9,9 @@ import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
-import type { PortScanResult, PortScanStatus } from '../types/devices';
-
-interface NetworkDevice {
-  network: string;
-  ip_address: string;
-  mac_address: string;
-  hostname: string;
-  nickname?: string | null;
-  favorite?: boolean;
-  vendor: string | null;
-  is_dhcp: boolean;
-  is_static: boolean;
-  is_online: boolean;
-  last_seen: string;
-}
+import type { NetworkDevice, PortScanResult, PortScanStatus } from '../types/devices';
+import { HostnameEditModal } from '../components/HostnameEditModal';
+import type { DhcpNetwork } from '../types/dhcp';
 
 export function Clients() {
   const token = localStorage.getItem('access_token');
@@ -44,8 +32,15 @@ export function Clients() {
   const [selectedDeviceMac, setSelectedDeviceMac] = useState<string | null>(null);
   const [portScanStatuses, setPortScanStatuses] = useState<Map<string, PortScanStatus>>(new Map());
   const [loadingPortScan, setLoadingPortScan] = useState(false);
-  
+  const [hostnameModalDevice, setHostnameModalDevice] = useState<NetworkDevice | null>(null);
+  const [dhcpNetworks, setDhcpNetworks] = useState<DhcpNetwork[]>([]);
+
   const { connectionStatus } = useMetrics(token);
+
+  useEffect(() => {
+    if (!token) return;
+    apiClient.getDhcpNetworks().then(setDhcpNetworks).catch(() => {});
+  }, [token]);
   
   const handleLogout = async () => {
     await apiClient.logout();
@@ -257,23 +252,19 @@ export function Clients() {
     }
   };
 
-  const editNickname = async (device: NetworkDevice) => {
+  const openHostnameModal = (device: NetworkDevice) => {
+    setHostnameModalDevice(device);
+  };
+
+  const refetchDevices = async () => {
     if (!token) return;
-    const currentName = device.nickname || '';
-    const value = window.prompt('Set nickname for this device:', currentName);
-    if (value === null) return;
-    // optimistic
-    setDevices(prev => prev.map(d => d.mac_address === device.mac_address ? { ...d, nickname: value } : d));
     try {
-      await fetch('/api/devices/override', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac_address: device.mac_address, nickname: value }),
+      const response = await fetch('/api/devices/all', {
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-      const resp = await fetch('/api/devices/all', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (resp.ok) setDevices(await resp.json());
-    } catch {
-      // ignore
+      if (response.ok) setDevices(await response.json());
+    } catch (e) {
+      console.error('Failed to refetch devices:', e);
     }
   };
 
@@ -363,7 +354,7 @@ export function Clients() {
   const filteredDevices = devices.filter((device) => {
     // Search filter
     const matchesSearch = !search || (
-      device.hostname?.toLowerCase().includes(search.toLowerCase()) ||
+      (device.hostname || '').toLowerCase().includes(search.toLowerCase()) ||
       device.ip_address.includes(search) ||
       device.mac_address.includes(search) ||
       device.vendor?.toLowerCase().includes(search.toLowerCase())
@@ -417,11 +408,6 @@ export function Clients() {
     return sortDirection === 'asc' ? ' ↑' : ' ↓';
   };
 
-  // Get display name for device (nickname or hostname)
-  const getDisplayName = (device: NetworkDevice): string => {
-    return device.nickname || device.hostname || 'Unknown';
-  };
-
   // Sort devices based on selected column
   const sortedDevices = [...filteredDevices].sort((a, b) => {
     let comparison = 0;
@@ -434,7 +420,7 @@ export function Clients() {
         break;
       }
       case 'device':
-        comparison = getDisplayName(a).toLowerCase().localeCompare(getDisplayName(b).toLowerCase());
+        comparison = (a.hostname || '').toLowerCase().localeCompare((b.hostname || '').toLowerCase());
         break;
       case 'mac':
         comparison = a.mac_address.localeCompare(b.mac_address);
@@ -711,12 +697,12 @@ export function Clients() {
                           </button>
                           <button
                             className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
-                            title="Edit nickname"
-                            onClick={() => editNickname(device)}
+                            title="Edit hostname"
+                            onClick={() => openHostnameModal(device)}
                           >
                             <HiPencil className="w-4 h-4" />
                           </button>
-                          <TruncatedText text={device.nickname || device.hostname || 'Unknown'} maxLength={20} />
+                          <TruncatedText text={device.hostname || 'Unknown'} maxLength={20} />
                         </div>
                       </Table.Cell>
                       <Table.Cell className="font-mono text-sm hidden lg:table-cell">
@@ -818,7 +804,7 @@ export function Clients() {
                   {/* Header Row */}
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1">
-                      <div className="font-semibold text-lg mb-1">
+                      <div className="font-semibold text-lg mb-1 text-gray-900 dark:text-white">
                         {device.hostname || 'Unknown'}
                       </div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -852,8 +838,8 @@ export function Clients() {
                     </div>
                     
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-500">Nickname:</span>
-                      <span className="text-gray-900 dark:text-gray-100">{device.nickname || '—'}</span>
+                      <span className="text-gray-500">Hostname:</span>
+                      <span className="text-gray-900 dark:text-gray-100">{device.hostname || '—'}</span>
                     </div>
                     
                     <div className="flex justify-between items-center">
@@ -895,7 +881,7 @@ export function Clients() {
                         </Button>
                       </div>
                       <div className="mt-2 flex gap-2">
-                        <Button size="xs" color="light" className="flex-1" onClick={() => editNickname(device)}>Edit Nickname</Button>
+                        <Button size="xs" color="light" className="flex-1" onClick={() => openHostnameModal(device)}>Edit hostname</Button>
                         <Button size="xs" color={device.favorite ? 'warning' : 'light'} onClick={() => toggleFavorite(device)}>
                           {device.favorite ? '★ Favorite' : '☆ Favorite'}
                         </Button>
@@ -1051,6 +1037,19 @@ export function Clients() {
               )}
             </Modal.Body>
           </Modal>
+
+          {hostnameModalDevice && (
+            <HostnameEditModal
+              show={!!hostnameModalDevice}
+              onClose={() => setHostnameModalDevice(null)}
+              currentHostname={hostnameModalDevice.hostname || ''}
+              dynamicDomain={dhcpNetworks.find(n => n.network === hostnameModalDevice.network)?.dynamic_domain ?? null}
+              network={hostnameModalDevice.network as 'homelab' | 'lan'}
+              macAddress={hostnameModalDevice.mac_address}
+              ipAddress={hostnameModalDevice.ip_address}
+              onSaved={refetchDevices}
+            />
+          )}
         </main>
       </div>
     </div>

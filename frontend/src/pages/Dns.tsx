@@ -11,6 +11,7 @@ import { apiClient } from '../api/client';
 import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh } from 'react-icons/hi';
 import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry } from '../types/dns';
 import type { DhcpNetwork } from '../types/dhcp';
+import { HostnameEditModal } from '../components/HostnameEditModal';
 
 export function Dns() {
   const token = localStorage.getItem('access_token');
@@ -59,6 +60,8 @@ export function Dns() {
   const [dynamicEntriesByNetwork, setDynamicEntriesByNetwork] = useState<Record<'homelab' | 'lan', DynamicDnsEntry[]>>({ homelab: [], lan: [] });
   const [loadingDynamic, setLoadingDynamic] = useState(false);
   const [errorDynamic, setErrorDynamic] = useState<string | null>(null);
+  const [hostnameModalEntry, setHostnameModalEntry] = useState<DynamicDnsEntry | null>(null);
+  const [hostnameModalNetwork, setHostnameModalNetwork] = useState<'homelab' | 'lan' | null>(null);
 
   const { connectionStatus } = useMetrics(token);
 
@@ -651,6 +654,7 @@ export function Dns() {
                           <Table.HeadCell>FQDN</Table.HeadCell>
                           <Table.HeadCell>IP address</Table.HeadCell>
                           <Table.HeadCell>MAC</Table.HeadCell>
+                          <Table.HeadCell>Actions</Table.HeadCell>
                         </Table.Head>
                         <Table.Body className="divide-y">
                           {entries.map((e, i) => (
@@ -659,6 +663,11 @@ export function Dns() {
                               <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.hostname_fqdn}</Table.Cell>
                               <Table.Cell className="text-gray-900 dark:text-white font-mono text-sm">{e.ip_address}</Table.Cell>
                               <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.mac_address}</Table.Cell>
+                              <Table.Cell>
+                                <Button size="xs" color="gray" onClick={() => { setHostnameModalEntry(e); setHostnameModalNetwork('homelab'); }} title="Edit hostname">
+                                  <HiPencil className="w-4 h-4" />
+                                </Button>
+                              </Table.Cell>
                             </Table.Row>
                           ))}
                         </Table.Body>
@@ -936,6 +945,7 @@ export function Dns() {
                           <Table.HeadCell>FQDN</Table.HeadCell>
                           <Table.HeadCell>IP address</Table.HeadCell>
                           <Table.HeadCell>MAC</Table.HeadCell>
+                          <Table.HeadCell>Actions</Table.HeadCell>
                         </Table.Head>
                         <Table.Body className="divide-y">
                           {entries.map((e, i) => (
@@ -944,6 +954,11 @@ export function Dns() {
                               <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.hostname_fqdn}</Table.Cell>
                               <Table.Cell className="text-gray-900 dark:text-white font-mono text-sm">{e.ip_address}</Table.Cell>
                               <Table.Cell className="text-gray-500 dark:text-gray-400 font-mono text-sm">{e.mac_address}</Table.Cell>
+                              <Table.Cell>
+                                <Button size="xs" color="gray" onClick={() => { setHostnameModalEntry(e); setHostnameModalNetwork('lan'); }} title="Edit hostname">
+                                  <HiPencil className="w-4 h-4" />
+                                </Button>
+                              </Table.Cell>
                             </Table.Row>
                           ))}
                         </Table.Body>
@@ -953,6 +968,19 @@ export function Dns() {
                 })()}
               </div>
             </Card>
+
+            {hostnameModalEntry && hostnameModalNetwork && (
+              <HostnameEditModal
+                show={!!hostnameModalEntry}
+                onClose={() => { setHostnameModalEntry(null); setHostnameModalNetwork(null); }}
+                currentHostname={hostnameModalEntry.hostname}
+                dynamicDomain={dhcpNetworks.find(n => n.network === hostnameModalNetwork)?.dynamic_domain ?? null}
+                network={hostnameModalNetwork}
+                macAddress={hostnameModalEntry.mac_address}
+                ipAddress={hostnameModalEntry.ip_address}
+                onSaved={fetchDynamicDnsData}
+              />
+            )}
 
             {/* Zone Modal */}
             <Modal show={zoneModalOpen} onClose={closeZoneModal} size="lg">
