@@ -506,11 +506,15 @@ async def upsert_override(req: OverrideRequest, username: str = Depends(get_curr
                 row.hostname = (req.hostname or '').strip() or None
             if req.favorite is not None:
                 row.favorite = bool(req.favorite)
+            row.updated_at = datetime.now(timezone.utc)
         else:
+            now = datetime.now(timezone.utc)
             row = DeviceOverrideDB(
                 mac_address=req.mac_address,
                 hostname=(req.hostname or '').strip() or None if req.hostname is not None else None,
                 favorite=bool(req.favorite) if req.favorite is not None else False,
+                created_at=now,
+                updated_at=now,
             )
             session.add(row)
         await session.commit()

@@ -193,8 +193,8 @@ class DeviceOverrideDB(Base):
     mac_address = Column(MACADDR, nullable=False, unique=True, index=True)
     hostname = Column(String(255))
     favorite = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text('now()'))
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text('now()'), onupdate=text('now()'))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
 class DevicePortScanDB(Base):
