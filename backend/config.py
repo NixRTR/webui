@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     redis_buffer_max_size: int = 100  # items per buffer
     redis_cache_ttl_rules: int = 60  # seconds
     redis_cache_ttl_overrides: int = 30  # seconds
-    redis_cache_ttl_api: int = 10  # seconds
+    redis_cache_ttl_api: int = 15  # seconds (increased to reduce CPU usage)
 
     # Worker Status (Celery) - threshold in seconds for "long-running" tasks
     worker_status_long_running_seconds: int = 300

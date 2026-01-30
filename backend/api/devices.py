@@ -86,10 +86,11 @@ async def get_all_devices(
     cache_key = "api:devices:all"
     cached_result = await get_json(cache_key)
     if cached_result:
-        # Return cached result
-        return [NetworkDevice(**device) for device in cached_result]
+        # Return cached result - FastAPI will serialize dicts to NetworkDevice models
+        return cached_result
     
     # Cache DHCP leases parsing (expensive file I/O)
+    # Use longer cache TTL since leases don't change frequently
     dhcp_cache_key = "cache:dhcp_leases"
     cached_dhcp = await get_json(dhcp_cache_key)
     if cached_dhcp:
@@ -97,16 +98,13 @@ async def get_all_devices(
         dhcp_leases = [DHCPLease(**lease) for lease in cached_dhcp]
     else:
         dhcp_leases = parse_dnsmasq_leases()
-        # Cache for 5 seconds (DHCP leases change infrequently)
-        await set_json(dhcp_cache_key, [lease.model_dump() for lease in dhcp_leases], ttl=5)
+        # Cache for 15 seconds (DHCP leases change infrequently, longer cache reduces I/O)
+        await set_json(dhcp_cache_key, [lease.model_dump() for lease in dhcp_leases], ttl=15)
     
     devices = discover_network_devices(dhcp_leases)
 
-    # Trigger port scans for newly discovered devices from DHCP leases
-    try:
-        await trigger_new_device_scans(dhcp_leases)
-    except Exception as e:
-        logger.warning(f"Failed to trigger new device scans from DHCP: {e}")
+    # NOTE: Port scan triggering moved to background worker to avoid blocking API requests
+    # This was causing high CPU usage when triggered on every request
 
     # Filter to IPv4 only
     devices = [d for d in devices if _is_ipv4(d.ip_address)]
@@ -123,11 +121,12 @@ async def get_all_devices(
     async with AsyncSessionLocal() as session:
         # Filter by network column (has index) instead of IP pattern matching
         # This is much more efficient than LIKE with cast()
+        # Limit results to prevent loading too many devices
         result = await session.execute(
             select(NetworkDeviceDB).where(
                 NetworkDeviceDB.network.in_(['homelab', 'lan']),
                 NetworkDeviceDB.last_seen >= recent_cutoff
-            )
+            ).limit(500)  # Limit to prevent excessive memory usage
         )
         db_devices = result.scalars().all()
         
@@ -221,25 +220,18 @@ async def get_all_devices(
     # Convert back to list
     enriched = list(devices_by_mac.values())
 
+    # Sort: favorites first, then by hostname
+    enriched.sort(key=lambda d: (not d.favorite, (d.hostname or "").lower()))
+
     # Cache the result for future requests
     cache_data = [device.model_dump() for device in enriched]
     await set_json(cache_key, cache_data, ttl=settings.redis_cache_ttl_api)
-
-    # Trigger port scans for newly discovered online devices
-    from ..workers.port_scanner import queue_new_device_scan
-
-    for device in enriched:
-        if device.is_online:
-            try:
-                queued = await queue_new_device_scan(device.mac_address, device.ip_address)
-                if queued:
-                    logger.info(f"Queued scan for newly discovered device {device.mac_address}")
-            except Exception as e:
-                logger.warning(f"Failed to queue scan for new device {device.mac_address}: {e}")
-
-    # Sort: favorites first, then by hostname
-    enriched.sort(key=lambda d: (not d.favorite, (d.hostname or "").lower()))
-    return enriched
+    
+    # NOTE: Port scan triggering removed from hot path - causes high CPU usage
+    # Port scans should be triggered by background workers or on-demand via separate endpoint
+    
+    # Return enriched devices as dicts (FastAPI will serialize to NetworkDevice models)
+    return cache_data
 
 
 @router.get("/counts")

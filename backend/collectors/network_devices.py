@@ -43,7 +43,7 @@ class NetworkDevice:
 # Simple in-memory cache for ARP table (expensive subprocess call)
 _arp_cache = None
 _arp_cache_timestamp = None
-_arp_cache_ttl = 5  # seconds
+_arp_cache_ttl = 10  # seconds (increased to reduce subprocess calls)
 
 def parse_arp_table() -> Dict[str, Dict[str, str]]:
     """Parse system ARP table to find active devices
