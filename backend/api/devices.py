@@ -79,7 +79,27 @@ async def get_all_devices(
     Returns:
         List[NetworkDevice]: All discovered devices
     """
-    dhcp_leases = parse_dnsmasq_leases()
+    # Check cache first to avoid expensive operations
+    from ..utils.redis_client import get_json, set_json
+    from ..config import settings
+    
+    cache_key = "api:devices:all"
+    cached_result = await get_json(cache_key)
+    if cached_result:
+        # Return cached result
+        return [NetworkDevice(**device) for device in cached_result]
+    
+    # Cache DHCP leases parsing (expensive file I/O)
+    dhcp_cache_key = "cache:dhcp_leases"
+    cached_dhcp = await get_json(dhcp_cache_key)
+    if cached_dhcp:
+        from ..models import DHCPLease
+        dhcp_leases = [DHCPLease(**lease) for lease in cached_dhcp]
+    else:
+        dhcp_leases = parse_dnsmasq_leases()
+        # Cache for 5 seconds (DHCP leases change infrequently)
+        await set_json(dhcp_cache_key, [lease.model_dump() for lease in dhcp_leases], ttl=5)
+    
     devices = discover_network_devices(dhcp_leases)
 
     # Trigger port scans for newly discovered devices from DHCP leases
@@ -200,6 +220,10 @@ async def get_all_devices(
     
     # Convert back to list
     enriched = list(devices_by_mac.values())
+
+    # Cache the result for future requests
+    cache_data = [device.model_dump() for device in enriched]
+    await set_json(cache_key, cache_data, ttl=settings.redis_cache_ttl_api)
 
     # Trigger port scans for newly discovered online devices
     from ..workers.port_scanner import queue_new_device_scan

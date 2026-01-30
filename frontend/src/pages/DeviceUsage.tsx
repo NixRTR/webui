@@ -107,7 +107,7 @@ export function DeviceUsage() {
     };
     
     fetchDevices();
-    const interval = setInterval(fetchDevices, 10000);
+    const interval = setInterval(fetchDevices, 20000); // Increased from 10s to 20s to reduce server load
     return () => clearInterval(interval);
   }, [token]);
 
@@ -153,7 +153,7 @@ export function DeviceUsage() {
       }
     };
     fetchBlocked();
-    const interval = setInterval(fetchBlocked, 10000);
+    const interval = setInterval(fetchBlocked, 20000); // Increased from 10s to 20s to reduce server load
     return () => clearInterval(interval);
   }, [token]);
 

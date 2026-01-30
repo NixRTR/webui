@@ -154,7 +154,7 @@ export function Clients() {
     );
   };
 
-  // Fetch devices every 10 seconds
+  // Fetch devices every 20 seconds
   useEffect(() => {
     const fetchDevices = async () => {
       if (!token) return;
@@ -201,11 +201,11 @@ export function Clients() {
     };
     
     fetchDevices();
-    const interval = setInterval(fetchDevices, 10000);
+    const interval = setInterval(fetchDevices, 20000); // Increased from 10s to 20s to reduce server load
     return () => clearInterval(interval);
   }, [token]);
 
-  // Fetch blocked list every 10 seconds
+  // Fetch blocked list every 20 seconds
   useEffect(() => {
     const fetchBlocked = async () => {
       if (!token) return;
@@ -223,7 +223,7 @@ export function Clients() {
       }
     };
     fetchBlocked();
-    const interval = setInterval(fetchBlocked, 10000);
+    const interval = setInterval(fetchBlocked, 20000); // Increased from 10s to 20s to reduce server load
     return () => clearInterval(interval);
   }, [token]);
 

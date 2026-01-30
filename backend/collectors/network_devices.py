@@ -40,12 +40,27 @@ class NetworkDevice:
         self.vendor = vendor
 
 
+# Simple in-memory cache for ARP table (expensive subprocess call)
+_arp_cache = None
+_arp_cache_timestamp = None
+_arp_cache_ttl = 5  # seconds
+
 def parse_arp_table() -> Dict[str, Dict[str, str]]:
     """Parse system ARP table to find active devices
+    
+    Uses a short-lived cache to avoid expensive subprocess calls on every request.
     
     Returns:
         Dict[ip_address, {mac_address, interface}]
     """
+    global _arp_cache, _arp_cache_timestamp
+    
+    # Check cache
+    if _arp_cache is not None and _arp_cache_timestamp is not None:
+        cache_age = (datetime.now(timezone.utc) - _arp_cache_timestamp).total_seconds()
+        if cache_age < _arp_cache_ttl:
+            return _arp_cache
+    
     devices = {}
     
     try:
@@ -122,6 +137,10 @@ def parse_arp_table() -> Dict[str, Dict[str, str]]:
                                 }
         except Exception as e:
             print(f"Error reading /proc/net/arp: {e}")
+    
+    # Update cache before returning
+    _arp_cache = devices
+    _arp_cache_timestamp = datetime.now(timezone.utc)
     
     return devices
 
