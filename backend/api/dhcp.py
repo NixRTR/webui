@@ -534,9 +534,12 @@ async def create_reservation(
     if not dhcp_network:
         raise HTTPException(status_code=404, detail=f"DHCP network {network} not found")
     
+    # Normalize MAC address for comparison (case-insensitive)
+    reservation_mac_normalized = reservation.hw_address.strip().lower()
+    
     # Check if reservation with same MAC already exists
     existing_reservations = get_dhcp_reservations_from_config(network)
-    if any(r['hw_address'] == reservation.hw_address for r in existing_reservations):
+    if any(r['hw_address'].strip().lower() == reservation_mac_normalized for r in existing_reservations):
         raise HTTPException(
             status_code=400,
             detail=f"Reservation with MAC {reservation.hw_address} already exists for network {network}"
@@ -568,9 +571,9 @@ async def create_reservation(
         {"hostname": reservation.hostname, "hw_address": reservation.hw_address}
     )
     
-    # Return created reservation (read back from config)
+    # Return created reservation (read back from config, normalize for comparison)
     reservations = get_dhcp_reservations_from_config(network)
-    created = next((r for r in reservations if r['hw_address'] == reservation.hw_address), None)
+    created = next((r for r in reservations if r['hw_address'].strip().lower() == reservation_mac_normalized), None)
     if not created:
         raise HTTPException(status_code=500, detail="Reservation created but not found in config")
     
@@ -599,8 +602,11 @@ async def get_reservation(
     if network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    # Normalize MAC address for comparison (case-insensitive)
+    hw_address_normalized = hw_address.strip().lower()
+    
     reservations = get_dhcp_reservations_from_config(network)
-    reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
+    reservation = next((r for r in reservations if r['hw_address'].strip().lower() == hw_address_normalized), None)
     
     if not reservation:
         raise HTTPException(
@@ -635,9 +641,12 @@ async def update_reservation(
     if network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    # Normalize MAC address for comparison (case-insensitive)
+    hw_address_normalized = hw_address.strip().lower()
+    
     # Verify reservation exists in config
     reservations = get_dhcp_reservations_from_config(network)
-    existing_reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
+    existing_reservation = next((r for r in reservations if r['hw_address'].strip().lower() == hw_address_normalized), None)
     
     if not existing_reservation:
         raise HTTPException(
@@ -645,15 +654,16 @@ async def update_reservation(
             detail=f"Reservation with MAC {hw_address} not found for network {network}"
         )
     
-    # Determine new values
-    new_hw_address = reservation_update.hw_address if reservation_update.hw_address is not None else hw_address
+    # Determine new values (use existing MAC from reservation to preserve format)
+    new_hw_address = reservation_update.hw_address if reservation_update.hw_address is not None else existing_reservation['hw_address']
     new_hostname = reservation_update.hostname if reservation_update.hostname is not None else existing_reservation['hostname']
     new_ip_address = reservation_update.ip_address if reservation_update.ip_address is not None else existing_reservation['ip_address']
     new_comment = reservation_update.comment if reservation_update.comment is not None else existing_reservation.get('comment', '')
     
     # Check for conflicts if MAC or IP is being changed
-    if new_hw_address != hw_address:
-        if any(r['hw_address'] == new_hw_address for r in reservations):
+    new_hw_address_normalized = new_hw_address.strip().lower() if new_hw_address else None
+    if new_hw_address_normalized and new_hw_address_normalized != hw_address_normalized:
+        if any(r['hw_address'].strip().lower() == new_hw_address_normalized for r in reservations):
             raise HTTPException(
                 status_code=400,
                 detail=f"MAC address {new_hw_address} already reserved in network {network}"
@@ -684,11 +694,11 @@ async def update_reservation(
             comment=new_comment
         )
     else:
-        # Update existing reservation
+        # Update existing reservation (use existing MAC format)
         update_dhcp_reservation_in_config(
             network=network,
             operation="update",
-            hw_address=hw_address,
+            hw_address=existing_reservation['hw_address'],
             hostname=new_hostname,
             ip_address=new_ip_address,
             comment=new_comment
@@ -700,9 +710,9 @@ async def update_reservation(
         {"hw_address": new_hw_address, "hostname": new_hostname}
     )
     
-    # Return updated reservation (read back from config)
+    # Return updated reservation (read back from config, normalize for comparison)
     reservations = get_dhcp_reservations_from_config(network)
-    updated = next((r for r in reservations if r['hw_address'] == new_hw_address), None)
+    updated = next((r for r in reservations if r['hw_address'].strip().lower() == new_hw_address.strip().lower()), None)
     if not updated:
         raise HTTPException(status_code=500, detail="Reservation not found after update")
     
@@ -728,9 +738,12 @@ async def delete_reservation(
     if network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    # Normalize MAC address for comparison (case-insensitive)
+    hw_address_normalized = hw_address.strip().lower()
+    
     # Verify reservation exists in config
     reservations = get_dhcp_reservations_from_config(network)
-    existing_reservation = next((r for r in reservations if r['hw_address'] == hw_address), None)
+    existing_reservation = next((r for r in reservations if r['hw_address'].strip().lower() == hw_address_normalized), None)
     
     if not existing_reservation:
         raise HTTPException(
@@ -738,12 +751,12 @@ async def delete_reservation(
             detail=f"Reservation with MAC {hw_address} not found for network {network}"
         )
     
-    # Delete reservation from config
+    # Delete reservation from config (use existing MAC format)
     try:
         update_dhcp_reservation_in_config(
             network=network,
             operation="delete",
-            hw_address=hw_address
+            hw_address=existing_reservation['hw_address']
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
