@@ -213,16 +213,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 )}
               </li>
 
-              <FlowbiteSidebar.Item
-                as={Link}
-                to="/notifications"
-                icon={HiBell}
-                active={location.pathname === '/notifications'}
-                onClick={handleItemClick}
-              >
-                Notifications
-              </FlowbiteSidebar.Item>
-
               {/* Settings - collapsible */}
               <li>
                 <button
@@ -261,6 +251,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                   </ul>
                 )}
               </li>
+
+            <FlowbiteSidebar.Item
+              as={Link}
+              to="/notifications"
+              icon={HiBell}
+              active={location.pathname === '/notifications'}
+              onClick={handleItemClick}
+            >
+              Notifications
+            </FlowbiteSidebar.Item>
             </FlowbiteSidebar.ItemGroup>
 
             <FlowbiteSidebar.ItemGroup>
