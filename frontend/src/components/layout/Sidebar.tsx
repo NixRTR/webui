@@ -7,6 +7,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   HiChartPie,
   HiViewBoards,
+  HiUsers,
   HiClock,
   HiLogout,
   HiBookOpen,
@@ -18,6 +19,8 @@ import {
   HiShieldCheck,
   HiArrowRight,
   HiRefresh,
+  HiLightningBolt,
+  HiInformationCircle,
   HiDocumentText,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
@@ -34,7 +37,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const [githubStats, setGitHubStats] = useState<{ stars: number; forks: number } | null>(null);
   const [networkExpanded, setNetworkExpanded] = useState(false);
   const [systemExpanded, setSystemExpanded] = useState(false);
-  const [logsExpanded, setLogsExpanded] = useState(false);
   const [configExpanded, setConfigExpanded] = useState(false);
 
   useEffect(() => {
@@ -66,27 +68,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   };
 
   const networkChildren = [
-    { path: '/network', label: 'Charts' },
-    { path: '/devices', label: 'Devices' },
-    { path: '/device-usage', label: 'Usage' },
+    { path: '/network', label: 'Charts', icon: HiViewBoards },
+    { path: '/devices', label: 'Devices', icon: HiUsers },
+    { path: '/device-usage', label: 'Usage', icon: HiChartPie },
   ];
   const systemChildren = [
-    { path: '/system', label: 'Charts' },
-    { path: '/settings/worker-status', label: 'Worker Status' },
-    { path: '/speedtest', label: 'Speedtest' },
-    { path: '/system-info', label: 'System Info' },
-  ];
-  const logSources = [
-    { id: 'system', label: 'System Log' },
-    { id: 'dnsmasq-lan', label: 'LAN DNS/DHCP' },
-    { id: 'dnsmasq-homelab', label: 'HOMELAB DNS/DHCP' },
-    { id: 'nginx', label: 'Nginx' },
-    { id: 'router-webui-backend', label: 'WebUI Backend' },
-    { id: 'router-webui-celery-parallel', label: 'Parallel Celery Worker' },
-    { id: 'router-webui-celery-sequential', label: 'Sequential Celery Worker' },
-    { id: 'router-webui-celery-aggregation', label: 'Aggregation Celery Worker' },
-    { id: 'postgresql', label: 'Database' },
-    { id: 'sshd', label: 'SSH' },
+    { path: '/system', label: 'Charts', icon: HiChartPie },
+    { path: '/settings/worker-status', label: 'Worker Status', icon: HiServer },
+    { path: '/speedtest', label: 'Speedtest', icon: HiLightningBolt },
+    { path: '/system-info', label: 'System Info', icon: HiInformationCircle },
+    { path: '/system/logs', label: 'Logs', icon: HiDocumentText },
   ];
   const configChildren = [
     { path: '/settings/cake', label: 'CAKE', icon: HiTrendingUp },
@@ -100,7 +91,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
   const isNetworkActive = ['/network', '/devices', '/device-usage'].some(p => location.pathname === p || (p !== '/network' && location.pathname.startsWith(p)));
   const isSystemActive = location.pathname === '/system' || location.pathname === '/system-info' || location.pathname === '/speedtest' || location.pathname === '/settings/worker-status' || location.pathname.startsWith('/system/logs');
-  const isLogsActive = location.pathname.startsWith('/system/logs');
   const isConfigActive = isParentActive('/settings', configChildren);
 
   useEffect(() => {
@@ -109,9 +99,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   useEffect(() => {
     if (isSystemActive) setSystemExpanded(true);
   }, [isSystemActive]);
-  useEffect(() => {
-    if (isLogsActive) setLogsExpanded(true);
-  }, [isLogsActive]);
   useEffect(() => {
     if (isConfigActive) setConfigExpanded(true);
   }, [isConfigActive]);
@@ -164,21 +151,25 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 </button>
                 {networkExpanded && (
                   <ul className="ml-6 mt-2 space-y-1">
-                    {networkChildren.map((child) => (
-                      <li key={child.path}>
-                        <Link
-                          to={child.path}
-                          onClick={handleItemClick}
-                          className={`flex items-center p-2 rounded-lg text-sm ${
-                            isActive(child.path)
-                              ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
-                              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          {child.label}
-                        </Link>
-                      </li>
-                    ))}
+                    {networkChildren.map((child) => {
+                      const IconComponent = child.icon;
+                      return (
+                        <li key={child.path}>
+                          <Link
+                            to={child.path}
+                            onClick={handleItemClick}
+                            className={`flex items-center p-2 rounded-lg text-sm ${
+                              isActive(child.path)
+                                ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            <IconComponent className="w-4 h-4 mr-2" />
+                            {child.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </li>
@@ -199,55 +190,25 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 </button>
                 {systemExpanded && (
                   <ul className="ml-6 mt-2 space-y-1">
-                    {systemChildren.map((child) => (
-                      <li key={child.path}>
-                        <Link
-                          to={child.path}
-                          onClick={handleItemClick}
-                          className={`flex items-center p-2 rounded-lg text-sm ${
-                            isActive(child.path)
-                              ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
-                              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          {child.label}
-                        </Link>
-                      </li>
-                    ))}
-                    {/* Logs - nested collapsible */}
-                    <li>
-                      <button
-                        type="button"
-                        onClick={() => setLogsExpanded(!logsExpanded)}
-                        className={`flex items-center w-full p-2 rounded-lg text-sm ${
-                          isLogsActive
-                            ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
-                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                        }`}
-                      >
-                        <HiDocumentText className="w-4 h-4 mr-2" />
-                        Logs
-                      </button>
-                      {logsExpanded && (
-                        <ul className="ml-4 mt-1 space-y-1">
-                          {logSources.map((src) => (
-                            <li key={src.id}>
-                              <Link
-                                to={`/system/logs?service=${src.id}`}
-                                onClick={handleItemClick}
-                                className={`flex items-center p-2 rounded-lg text-sm ${
-                                  location.pathname === '/system/logs' && new URLSearchParams(location.search).get('service') === src.id
-                                    ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
-                                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                                }`}
-                              >
-                                {src.label}
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
+                    {systemChildren.map((child) => {
+                      const IconComponent = child.icon;
+                      return (
+                        <li key={child.path}>
+                          <Link
+                            to={child.path}
+                            onClick={handleItemClick}
+                            className={`flex items-center p-2 rounded-lg text-sm ${
+                              isActive(child.path) || (child.path === '/system/logs' && location.pathname.startsWith('/system/logs'))
+                                ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            <IconComponent className="w-4 h-4 mr-2" />
+                            {child.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </li>
@@ -304,8 +265,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
             <FlowbiteSidebar.ItemGroup>
               <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-            </FlowbiteSidebar.ItemGroup>
-            <FlowbiteSidebar.ItemGroup>
               <FlowbiteSidebar.Item
                 icon={HiLogout}
                 style={{ cursor: 'pointer' }}
@@ -316,11 +275,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               >
                 Logout
               </FlowbiteSidebar.Item>
-            </FlowbiteSidebar.ItemGroup>
-            <FlowbiteSidebar.ItemGroup>
-              <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-            </FlowbiteSidebar.ItemGroup>
-            <FlowbiteSidebar.ItemGroup>
               <FlowbiteSidebar.Item
                 href="/docs"
                 target="_blank"

@@ -3,6 +3,7 @@ Logs API - stream systemd journal logs for configured services
 """
 import asyncio
 import logging
+import shutil
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -72,8 +73,13 @@ async def get_logs(
 
 async def _stream_logs(service_id: str, lines: int) -> AsyncIterator[bytes]:
     args = _build_journalctl_args(service_id, lines, follow=True)
+    # Use stdbuf to force line-unbuffered output so chunks reach the client immediately (if available)
+    if shutil.which("stdbuf"):
+        exec_args = ["stdbuf", "-oL"] + args
+    else:
+        exec_args = args
     proc = await asyncio.create_subprocess_exec(
-        *args,
+        *exec_args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )

@@ -2,15 +2,16 @@
  * Logs page - live view of systemd journal logs for configured services
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { Button, Card, Spinner } from 'flowbite-react';
-import { HiRefresh, HiPlay, HiStop } from 'react-icons/hi';
+import { useNavigate } from 'react-router-dom';
+import { Button, Card, Spinner, Select, Checkbox, Label } from 'flowbite-react';
+import { HiRefresh } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 const LOG_SOURCES = [
   { id: 'system', label: 'System Log' },
   { id: 'dnsmasq-lan', label: 'LAN DNS/DHCP' },
@@ -24,29 +25,31 @@ const LOG_SOURCES = [
   { id: 'sshd', label: 'SSH' },
 ];
 
+const LINES_OPTIONS = [100, 200, 500, 1000, 2000];
+
 export function Logs() {
   const token = localStorage.getItem('access_token');
   const username = localStorage.getItem('username') || 'Unknown';
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const serviceId = searchParams.get('service') || '';
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [serviceId, setServiceId] = useState(LOG_SOURCES[0].id);
+  const [lines, setLines] = useState(500);
+  const [follow, setFollow] = useState(false);
   const [logText, setLogText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [following, setFollowing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const preRef = useRef<HTMLPreElement>(null);
 
   const { connectionStatus } = useMetrics(token);
 
   const fetchLogs = useCallback(
-    async (lines: number = 500) => {
+    async (lineCount: number) => {
       if (!serviceId || !token) return;
       setLoading(true);
       setError(null);
       try {
-        const text = await apiClient.getLogs(serviceId, lines);
+        const text = await apiClient.getLogs(serviceId, lineCount);
         setLogText(text);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load logs';
@@ -59,21 +62,22 @@ export function Logs() {
     [serviceId, token]
   );
 
+  // One-shot load when service or lines change (and not following)
   useEffect(() => {
-    if (serviceId) {
-      fetchLogs();
-    } else {
-      setLogText('');
-      setError(null);
+    if (!follow && serviceId) {
+      fetchLogs(lines);
     }
-  }, [serviceId, fetchLogs]);
+  }, [serviceId, lines, follow, fetchLogs]);
 
+  // Follow mode: stream logs with selected lines
   useEffect(() => {
-    if (!following || !serviceId || !token) return;
+    if (!follow || !serviceId || !token) return;
     setLogText('');
+    setError(null);
+    setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const url = `${API_BASE_URL}/api/logs?service=${encodeURIComponent(serviceId)}&lines=200&follow=true`;
+    const url = `${API_BASE_URL}/api/logs?service=${encodeURIComponent(serviceId)}&lines=${lines}&follow=true`;
     (async () => {
       try {
         const response = await fetch(url, {
@@ -82,9 +86,10 @@ export function Logs() {
         });
         if (!response.ok || !response.body) {
           setError(`HTTP ${response.status}`);
+          setLoading(false);
           return;
         }
-        setError(null);
+        setLoading(false);
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -96,15 +101,16 @@ export function Logs() {
         if ((e as Error).name !== 'AbortError') {
           setError((e as Error).message);
         }
+        setLoading(false);
       } finally {
-        setFollowing(false);
+        setFollow(false);
       }
     })();
     return () => {
       controller.abort();
       abortRef.current = null;
     };
-  }, [following, serviceId, token]);
+  }, [follow, serviceId, lines, token]);
 
   useEffect(() => {
     if (preRef.current && logText) {
@@ -117,14 +123,20 @@ export function Logs() {
     navigate('/login');
   };
 
-  const stopFollow = () => {
-    if (abortRef.current) {
+  const handleFollowChange = (checked: boolean) => {
+    if (!checked && abortRef.current) {
       abortRef.current.abort();
+      abortRef.current = null;
     }
-    setFollowing(false);
+    setFollow(checked);
   };
 
-  const currentLabel = LOG_SOURCES.find((s) => s.id === serviceId)?.label || serviceId;
+  const handleRefresh = () => {
+    if (follow) {
+      handleFollowChange(false);
+    }
+    fetchLogs(lines);
+  };
 
   return (
     <div className="flex h-screen">
@@ -144,72 +156,78 @@ export function Logs() {
           <div className="mx-auto max-w-full">
             <Card>
               <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Logs</h1>
-              {!serviceId ? (
-                <>
-                  <p className="text-gray-600 dark:text-gray-400">Select a log source</p>
-                  <ul className="mt-2 space-y-1">
-                  {LOG_SOURCES.map((src) => (
-                    <li key={src.id}>
-                      <Link
-                        to={`/system/logs?service=${src.id}`}
-                        className="text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        {src.label}
-                      </Link>
-                    </li>
-                  ))}
-                  </ul>
-                </>
-              ) : (
-                <>
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {currentLabel}
-                    </span>
-                    <Button
-                      size="xs"
-                      onClick={() => fetchLogs()}
-                      disabled={loading || following}
-                    >
-                      <HiRefresh className="mr-1 h-4 w-4" />
-                      Refresh
-                    </Button>
-                    {following ? (
-                      <Button size="xs" color="failure" onClick={stopFollow}>
-                        <HiStop className="mr-1 h-4 w-4" />
-                        Stop
-                      </Button>
-                    ) : (
-                      <Button
-                        size="xs"
-                        color="success"
-                        onClick={() => setFollowing(true)}
-                        disabled={loading}
-                      >
-                        <HiPlay className="mr-1 h-4 w-4" />
-                        Follow
-                      </Button>
-                    )}
-                  </div>
-                  {error && (
-                    <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>
-                  )}
-                  {loading && !logText && (
-                    <div className="flex items-center gap-2 py-4">
-                      <Spinner size="sm" />
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                        Loading logs...
-                      </span>
-                    </div>
-                  )}
-                  <pre
-                    ref={preRef}
-                    className="max-h-[70vh] overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100 font-mono whitespace-pre-wrap break-words"
+              <div className="mb-4 flex flex-wrap items-end gap-4">
+                <div className="min-w-[200px]">
+                  <Label htmlFor="log-source" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Log to view
+                  </Label>
+                  <Select
+                    id="log-source"
+                    value={serviceId}
+                    onChange={(e) => setServiceId(e.target.value)}
+                    disabled={follow}
                   >
-                    {logText || (loading ? '' : 'No log output.')}
-                  </pre>
-                </>
+                    {LOG_SOURCES.map((src) => (
+                      <option key={src.id} value={src.id}>
+                        {src.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="min-w-[120px]">
+                  <Label htmlFor="lines" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Lines to view
+                  </Label>
+                  <Select
+                    id="lines"
+                    value={lines}
+                    onChange={(e) => setLines(Number(e.target.value))}
+                    disabled={follow}
+                  >
+                    {LINES_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="follow"
+                    checked={follow}
+                    onChange={(e) => handleFollowChange(e.target.checked)}
+                    disabled={loading}
+                  />
+                  <Label htmlFor="follow" className="cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                    Follow log (live tail, includes selected lines)
+                  </Label>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={loading || follow}
+                >
+                  <HiRefresh className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+              </div>
+              {error && (
+                <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>
               )}
+              {loading && !logText && (
+                <div className="flex items-center gap-2 py-4">
+                  <Spinner size="sm" />
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {follow ? 'Connecting...' : 'Loading logs...'}
+                  </span>
+                </div>
+              )}
+              <pre
+                ref={preRef}
+                className="max-h-[70vh] overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100 font-mono whitespace-pre-wrap break-words"
+              >
+                {logText || (loading ? '' : 'Select a log and click Refresh or enable Follow.')}
+              </pre>
             </Card>
           </div>
         </main>
