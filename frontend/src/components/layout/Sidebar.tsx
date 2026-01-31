@@ -7,12 +7,9 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   HiChartPie,
   HiViewBoards,
-  HiUsers,
   HiClock,
   HiLogout,
-  HiInformationCircle,
   HiBookOpen,
-  HiLightningBolt,
   HiTrendingUp,
   HiBell,
   HiGlobe,

@@ -135,6 +135,7 @@ export function Logs() {
       />
       <div className="flex flex-1 flex-col min-w-0">
         <Navbar
+          hostname="nixos-router"
           username={username}
           connectionStatus={connectionStatus}
           onMenuClick={() => setSidebarOpen(true)}
@@ -144,8 +145,9 @@ export function Logs() {
             <Card>
               <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Logs</h1>
               {!serviceId ? (
-                <p className="text-gray-600 dark:text-gray-400">Select a log source</p>
-                <ul className="mt-2 space-y-1">
+                <>
+                  <p className="text-gray-600 dark:text-gray-400">Select a log source</p>
+                  <ul className="mt-2 space-y-1">
                   {LOG_SOURCES.map((src) => (
                     <li key={src.id}>
                       <Link
@@ -156,7 +158,8 @@ export function Logs() {
                       </Link>
                     </li>
                   ))}
-                </ul>
+                  </ul>
+                </>
               ) : (
                 <>
                   <div className="mb-2 flex flex-wrap items-center gap-2">
