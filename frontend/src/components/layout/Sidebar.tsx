@@ -26,6 +26,33 @@ import {
 import { FaGithub } from 'react-icons/fa';
 import { apiClient } from '../../api/client';
 
+const SIDEBAR_STORAGE_KEY = 'webui-sidebar-expanded';
+
+function loadSidebarExpanded(): { network: boolean; system: boolean; config: boolean } {
+  try {
+    const s = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (s) {
+      const o = JSON.parse(s) as Record<string, boolean>;
+      return {
+        network: !!o.network,
+        system: !!o.system,
+        config: !!o.config,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { network: false, system: false, config: false };
+}
+
+function saveSidebarExpanded(expanded: { network: boolean; system: boolean; config: boolean }) {
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(expanded));
+  } catch {
+    // ignore
+  }
+}
+
 interface SidebarProps {
   onLogout: () => void;
   isOpen: boolean;
@@ -35,9 +62,9 @@ interface SidebarProps {
 export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const [githubStats, setGitHubStats] = useState<{ stars: number; forks: number } | null>(null);
-  const [networkExpanded, setNetworkExpanded] = useState(false);
-  const [systemExpanded, setSystemExpanded] = useState(false);
-  const [configExpanded, setConfigExpanded] = useState(false);
+  const [networkExpanded, setNetworkExpanded] = useState(() => loadSidebarExpanded().network);
+  const [systemExpanded, setSystemExpanded] = useState(() => loadSidebarExpanded().system);
+  const [configExpanded, setConfigExpanded] = useState(() => loadSidebarExpanded().config);
 
   useEffect(() => {
     const fetchGitHubStats = async () => {
@@ -103,6 +130,40 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
     if (isConfigActive) setConfigExpanded(true);
   }, [isConfigActive]);
 
+  const toggleNetwork = () => {
+    setNetworkExpanded((prev) => {
+      const next = !prev;
+      saveSidebarExpanded({
+        network: next,
+        system: systemExpanded,
+        config: configExpanded,
+      });
+      return next;
+    });
+  };
+  const toggleSystem = () => {
+    setSystemExpanded((prev) => {
+      const next = !prev;
+      saveSidebarExpanded({
+        network: networkExpanded,
+        system: next,
+        config: configExpanded,
+      });
+      return next;
+    });
+  };
+  const toggleConfig = () => {
+    setConfigExpanded((prev) => {
+      const next = !prev;
+      saveSidebarExpanded({
+        network: networkExpanded,
+        system: systemExpanded,
+        config: next,
+      });
+      return next;
+    });
+  };
+
   return (
     <>
       {/* Overlay - visible below 1650px */}
@@ -139,7 +200,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               <li>
                 <button
                   type="button"
-                  onClick={() => setNetworkExpanded(!networkExpanded)}
+                  onClick={toggleNetwork}
                   className={`flex items-center w-full p-2 rounded-lg ${
                     isNetworkActive
                       ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
@@ -178,7 +239,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               <li>
                 <button
                   type="button"
-                  onClick={() => setSystemExpanded(!systemExpanded)}
+                  onClick={toggleSystem}
                   className={`flex items-center w-full p-2 rounded-lg ${
                     isSystemActive
                       ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
@@ -217,7 +278,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               <li>
                 <button
                   type="button"
-                  onClick={() => setConfigExpanded(!configExpanded)}
+                  onClick={toggleConfig}
                   className={`flex items-center w-full p-2 rounded-lg ${
                     isConfigActive
                       ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
