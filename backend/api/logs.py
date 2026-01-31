@@ -26,6 +26,7 @@ LOG_SERVICES: dict[str, str | None] = {
     "router-webui-celery-sequential": "router-webui-celery-sequential.service",
     "router-webui-celery-aggregation": "router-webui-celery-aggregation.service",
     "postgresql": "postgresql.service",
+    "redis": "redis.service",
     "sshd": "sshd.service",
 }
 
@@ -135,6 +136,7 @@ async def list_log_services(_: str = Depends(get_current_user)):
         "router-webui-celery-sequential": "Sequential Celery Worker",
         "router-webui-celery-aggregation": "Aggregation Celery Worker",
         "postgresql": "Database",
+        "redis": "REDIS",
         "sshd": "SSH",
     }
     return [{"id": sid, "label": labels.get(sid, sid)} for sid in LOG_SERVICES]

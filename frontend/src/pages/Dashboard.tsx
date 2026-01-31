@@ -178,118 +178,62 @@ export function Dashboard() {
           <Card>
             <h3 className="text-xl font-semibold mb-4">Services Status</h3>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Network Services */}
-              <div>
-                <h4 className="text-lg font-semibold mb-3">Network Services</h4>
-                <Table>
-                  <Table.Head>
-                    <Table.HeadCell>Service</Table.HeadCell>
-                    <Table.HeadCell>Status</Table.HeadCell>
-                    <Table.HeadCell>PID</Table.HeadCell>
-                    <Table.HeadCell>CPU</Table.HeadCell>
-                    <Table.HeadCell>Memory</Table.HeadCell>
-                  </Table.Head>
-                  <Table.Body className="divide-y">
-                    {[
-                      { name: 'Homelab DNS/DHCP', service: 'dnsmasq-homelab' },
-                      { name: 'LAN DNS/DHCP', service: 'dnsmasq-lan' },
-                      { name: 'PPPoE', service: 'pppd-eno1' },
-                      { name: 'Dynamic DNS', service: 'linode-dyndns' },
-                    ].map(({ name, service: serviceName }) => {
-                      const service = services.find(s => s.service_name === serviceName);
-                      const status = service 
-                        ? (service.is_active ? 'Running' : (service.is_enabled ? 'Stopped' : 'Disabled'))
-                        : 'Not Found';
-                      const statusColor = service
-                        ? (service.is_active ? 'success' : (service.is_enabled ? 'failure' : 'gray'))
-                        : 'gray';
-                      
-                      return (
-                        <Table.Row key={serviceName}>
-                          <Table.Cell className="font-medium">{name}</Table.Cell>
-                          <Table.Cell>
-                            <Badge color={statusColor as any}>
-                              {status}
-                            </Badge>
-                          </Table.Cell>
-                          <Table.Cell>{service?.pid || '-'}</Table.Cell>
-                          <Table.Cell>{service?.cpu_percent?.toFixed(1) || '-'}%</Table.Cell>
-                          <Table.Cell>{service?.memory_mb?.toFixed(0) || '-'} MB</Table.Cell>
-                        </Table.Row>
-                      );
-                    })}
-                  </Table.Body>
-                </Table>
-              </div>
-
-              {/* WebUI Services */}
-              <div>
-                <h4 className="text-lg font-semibold mb-3">WebUI Services</h4>
-                <Table>
-                  <Table.Head>
-                    <Table.HeadCell>Service</Table.HeadCell>
-                    <Table.HeadCell>Status</Table.HeadCell>
-                    <Table.HeadCell>PID</Table.HeadCell>
-                    <Table.HeadCell>CPU</Table.HeadCell>
-                    <Table.HeadCell>Memory</Table.HeadCell>
-                  </Table.Head>
-                  <Table.Body className="divide-y">
-                    {[
-                      { name: 'Frontend', service: 'nginx' },
-                      { name: 'Backend', service: 'router-webui-backend' },
-                      { name: 'Database', service: 'postgresql' },
-                      { name: 'Speedtest', service: 'speedtest', isOneshot: true },
-                    ].map(({ name, service: serviceName, isOneshot = false }) => {
-                      const service = services.find(s => s.service_name === serviceName);
-                      let status: string;
-                      let statusColor: string;
-                      
-                      if (!service) {
-                        status = 'Not Found';
-                        statusColor = 'gray';
-                      } else if (isOneshot) {
-                        // One-shot services: Running, Waiting, or Disabled
-                        if (service.is_active) {
-                          status = 'Running';
-                          statusColor = 'success';
-                        } else if (service.is_enabled) {
-                          status = 'Waiting';
-                          statusColor = 'warning';
-                        } else {
-                          status = 'Disabled';
-                          statusColor = 'gray';
-                        }
-                      } else {
-                        // Regular services: Running, Stopped, or Disabled
-                        if (service.is_active) {
-                          status = 'Running';
-                          statusColor = 'success';
-                        } else if (service.is_enabled) {
-                          status = 'Stopped';
-                          statusColor = 'failure';
-                        } else {
-                          status = 'Disabled';
-                          statusColor = 'gray';
-                        }
-                      }
-                      
-                      return (
-                        <Table.Row key={serviceName}>
-                          <Table.Cell className="font-medium">{name}</Table.Cell>
-                          <Table.Cell>
-                            <Badge color={statusColor as any}>
-                              {status}
-                            </Badge>
-                          </Table.Cell>
-                          <Table.Cell>{service?.pid || '-'}</Table.Cell>
-                          <Table.Cell>{service?.cpu_percent?.toFixed(1) || '-'}%</Table.Cell>
-                          <Table.Cell>{service?.memory_mb?.toFixed(0) || '-'} MB</Table.Cell>
-                        </Table.Row>
-                      );
-                    })}
-                  </Table.Body>
-                </Table>
-              </div>
+              {[
+                [
+                  { name: 'Homelab DNS/DHCP', serviceId: 'dnsmasq-homelab' },
+                  { name: 'LAN DNS/DHCP', serviceId: 'dnsmasq-lan' },
+                  { name: 'SSH', serviceId: 'sshd' },
+                  { name: 'Frontend', serviceId: 'nginx' },
+                  { name: 'Backend', serviceId: 'router-webui-backend' },
+                ],
+                [
+                  { name: 'Database', serviceId: 'postgresql' },
+                  { name: 'REDIS', serviceId: 'redis' },
+                  { name: 'Worker #1', serviceId: 'router-webui-celery-aggregation' },
+                  { name: 'Worker #2', serviceId: 'router-webui-celery-parallel' },
+                  { name: 'Worker #3', serviceId: 'router-webui-celery-sequential' },
+                ],
+              ].map((columnServices, colIndex) => (
+                <div key={colIndex}>
+                  <Table>
+                    <Table.Head>
+                      <Table.HeadCell>Service</Table.HeadCell>
+                      <Table.HeadCell>Status</Table.HeadCell>
+                      <Table.HeadCell>PID</Table.HeadCell>
+                      <Table.HeadCell>CPU</Table.HeadCell>
+                      <Table.HeadCell>Memory</Table.HeadCell>
+                    </Table.Head>
+                    <Table.Body className="divide-y">
+                      {columnServices.map(({ name, serviceId }) => {
+                        const service = services.find(s => s.service_name === serviceId);
+                        const status = service
+                          ? (service.is_active ? 'Running' : (service.is_enabled ? 'Stopped' : 'Disabled'))
+                          : 'Not Found';
+                        const statusColor = service
+                          ? (service.is_active ? 'success' : (service.is_enabled ? 'failure' : 'gray'))
+                          : 'gray';
+                        return (
+                          <Table.Row
+                            key={serviceId}
+                            className="cursor-pointer"
+                            onClick={() => navigate(`/system/logs?service=${encodeURIComponent(serviceId)}`)}
+                          >
+                            <Table.Cell className="font-medium">{name}</Table.Cell>
+                            <Table.Cell>
+                              <Badge color={statusColor as any}>
+                                {status}
+                              </Badge>
+                            </Table.Cell>
+                            <Table.Cell>{service?.pid || '-'}</Table.Cell>
+                            <Table.Cell>{service?.cpu_percent?.toFixed(1) || '-'}%</Table.Cell>
+                            <Table.Cell>{service?.memory_mb?.toFixed(0) || '-'} MB</Table.Cell>
+                          </Table.Row>
+                        );
+                      })}
+                    </Table.Body>
+                  </Table>
+                </div>
+              ))}
             </div>
           </Card>
         </main>

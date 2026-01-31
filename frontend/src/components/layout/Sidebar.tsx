@@ -120,46 +120,62 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const isSystemActive = location.pathname === '/system' || location.pathname === '/system-info' || location.pathname === '/speedtest' || location.pathname === '/settings/worker-status' || location.pathname.startsWith('/system/logs');
   const isConfigActive = isParentActive('/settings', configChildren);
 
+  // Auto-expand only the section for the current route; keep at most one open
   useEffect(() => {
-    if (isNetworkActive) setNetworkExpanded(true);
-  }, [isNetworkActive]);
-  useEffect(() => {
-    if (isSystemActive) setSystemExpanded(true);
-  }, [isSystemActive]);
-  useEffect(() => {
-    if (isConfigActive) setConfigExpanded(true);
-  }, [isConfigActive]);
+    if (isNetworkActive) {
+      setNetworkExpanded(true);
+      setSystemExpanded(false);
+      setConfigExpanded(false);
+      saveSidebarExpanded({ network: true, system: false, config: false });
+    } else if (isSystemActive) {
+      setNetworkExpanded(false);
+      setSystemExpanded(true);
+      setConfigExpanded(false);
+      saveSidebarExpanded({ network: false, system: true, config: false });
+    } else if (isConfigActive) {
+      setNetworkExpanded(false);
+      setSystemExpanded(false);
+      setConfigExpanded(true);
+      saveSidebarExpanded({ network: false, system: false, config: true });
+    }
+  }, [isNetworkActive, isSystemActive, isConfigActive]);
 
   const toggleNetwork = () => {
     setNetworkExpanded((prev) => {
       const next = !prev;
-      saveSidebarExpanded({
-        network: next,
-        system: systemExpanded,
-        config: configExpanded,
-      });
+      if (next) {
+        setSystemExpanded(false);
+        setConfigExpanded(false);
+        saveSidebarExpanded({ network: true, system: false, config: false });
+      } else {
+        saveSidebarExpanded({ network: false, system: systemExpanded, config: configExpanded });
+      }
       return next;
     });
   };
   const toggleSystem = () => {
     setSystemExpanded((prev) => {
       const next = !prev;
-      saveSidebarExpanded({
-        network: networkExpanded,
-        system: next,
-        config: configExpanded,
-      });
+      if (next) {
+        setNetworkExpanded(false);
+        setConfigExpanded(false);
+        saveSidebarExpanded({ network: false, system: true, config: false });
+      } else {
+        saveSidebarExpanded({ network: networkExpanded, system: false, config: configExpanded });
+      }
       return next;
     });
   };
   const toggleConfig = () => {
     setConfigExpanded((prev) => {
       const next = !prev;
-      saveSidebarExpanded({
-        network: networkExpanded,
-        system: systemExpanded,
-        config: next,
-      });
+      if (next) {
+        setNetworkExpanded(false);
+        setSystemExpanded(false);
+        saveSidebarExpanded({ network: false, system: false, config: true });
+      } else {
+        saveSidebarExpanded({ network: networkExpanded, system: systemExpanded, config: false });
+      }
       return next;
     });
   };

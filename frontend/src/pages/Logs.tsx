@@ -2,7 +2,7 @@
  * Logs page - live view of systemd journal logs for configured services
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Card, Spinner, Select, Checkbox, Label } from 'flowbite-react';
 import { HiRefresh } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
@@ -22,6 +22,7 @@ const LOG_SOURCES = [
   { id: 'router-webui-celery-sequential', label: 'Sequential Celery Worker' },
   { id: 'router-webui-celery-aggregation', label: 'Aggregation Celery Worker' },
   { id: 'postgresql', label: 'Database' },
+  { id: 'redis', label: 'REDIS' },
   { id: 'sshd', label: 'SSH' },
 ];
 
@@ -35,12 +36,23 @@ const LOG_LEVEL_OPTIONS = [
   { value: 'debug', label: 'Debug' },
 ];
 
+const VALID_SERVICE_IDS = new Set(LOG_SOURCES.map((s) => s.id));
+
 export function Logs() {
   const token = localStorage.getItem('access_token');
   const username = localStorage.getItem('username') || 'Unknown';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serviceId, setServiceId] = useState(LOG_SOURCES[0].id);
+
+  // Deep link: sync serviceId from ?service= query param when valid
+  useEffect(() => {
+    const serviceFromUrl = searchParams.get('service');
+    if (serviceFromUrl && VALID_SERVICE_IDS.has(serviceFromUrl)) {
+      setServiceId(serviceFromUrl);
+    }
+  }, [searchParams]);
   const [lines, setLines] = useState(500);
   const [priority, setPriority] = useState<string>('all');
   const [follow, setFollow] = useState(false);

@@ -15,14 +15,19 @@ NETWORK_SERVICES = [
     "dnsmasq-lan",       # LAN DNS and DHCP
     "pppd-eno1",         # PPPoE Server
     "linode-dyndns",     # Linode Dynamic DNS
+    "sshd",              # SSH daemon
 ]
 
 # WebUI Services
 WEBUI_SERVICES = [
-    "nginx",                 # WebUI Frontend (serves static files and reverse proxy)
-    "router-webui-backend",  # WebUI Backend
-    "postgresql",            # WebUI Database
-    "speedtest",             # Speedtest monitoring
+    "nginx",                          # WebUI Frontend (serves static files and reverse proxy)
+    "router-webui-backend",           # WebUI Backend
+    "postgresql",                     # WebUI Database
+    "redis",                          # Redis cache
+    "router-webui-celery-aggregation",  # Celery aggregation worker
+    "router-webui-celery-parallel",   # Celery parallel worker
+    "router-webui-celery-sequential", # Celery sequential worker
+    "speedtest",                      # Speedtest monitoring
 ]
 
 # All monitored services
