@@ -264,6 +264,15 @@ async def get_service_history(
         end = datetime.now(timezone.utc)
     if start is None:
         start = end - timedelta(hours=1)
+
+    cache_params = {
+        "service_name": service_name,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
+    cached = await _get_cached_response("history/services", cache_params)
+    if cached:
+        return cached
     
     conditions = [
         ServiceStatusDB.timestamp >= start,
@@ -278,7 +287,7 @@ async def get_service_history(
     result = await db.execute(query)
     rows = result.scalars().all()
     
-    return [
+    response = [
         {
             "timestamp": row.timestamp.isoformat(),
             "service_name": row.service_name,
@@ -290,4 +299,6 @@ async def get_service_history(
         }
         for row in rows
     ]
+    await set_json(_generate_cache_key("history/services", cache_params), response, ttl=settings.redis_cache_ttl_history)
+    return response
 

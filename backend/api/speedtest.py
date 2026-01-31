@@ -14,6 +14,7 @@ import os
 
 from ..database import get_db, SpeedtestResultDB
 from ..config import settings
+from ..utils.redis_client import get_json, set_json
 
 router = APIRouter(prefix="/api/speedtest", tags=["speedtest"])
 
@@ -97,6 +98,11 @@ async def get_speedtest_history(
     db: AsyncSession = Depends(get_db)
 ):
     """Get speedtest history with pagination"""
+    cache_key = f"api:speedtest:history:{start_time}:{end_time}:{page}:{page_size}"
+    cached = await get_json(cache_key)
+    if cached:
+        return SpeedtestHistoryResponse.model_validate(cached)
+
     # Build query
     query = select(SpeedtestResultDB)
     
@@ -131,13 +137,15 @@ async def get_speedtest_history(
     
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     
-    return SpeedtestHistoryResponse(
-        results=[SpeedtestResult.from_orm(r) for r in results],
+    out = SpeedtestHistoryResponse(
+        results=[SpeedtestResult.model_validate(r) for r in results],
         total=total,
         page=page,
         page_size=page_size,
         total_pages=total_pages,
     )
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=settings.redis_cache_ttl_speedtest)
+    return out
 
 
 @router.get("/chart-data")
@@ -146,6 +154,11 @@ async def get_speedtest_chart_data(
     db: AsyncSession = Depends(get_db)
 ):
     """Get speedtest data for charting (last N hours)"""
+    cache_key = f"api:speedtest:chart:{hours}"
+    cached = await get_json(cache_key)
+    if cached:
+        return cached
+
     end_time = datetime.now(timezone.utc)
     start_time = end_time - timedelta(hours=hours)
     
@@ -157,7 +170,7 @@ async def get_speedtest_chart_data(
     result = await db.execute(query)
     results = result.scalars().all()
     
-    return {
+    out = {
         "data": [
             {
                 "timestamp": r.timestamp.isoformat(),
@@ -168,6 +181,8 @@ async def get_speedtest_chart_data(
             for r in results
         ]
     }
+    await set_json(cache_key, out, ttl=settings.redis_cache_ttl_speedtest)
+    return out
 
 
 @router.get("/status", response_model=SpeedtestStatus)

@@ -30,6 +30,7 @@ from ..utils.apprise import (
     url_encode_password_in_url
 )
 from ..utils.apprise_parser import parse_apprise_nix_file
+from ..utils.redis_client import get_json, set_json
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,14 @@ async def get_apprise_status(
     Returns:
         AppriseStatus: Enabled status
     """
+    cache_key = "api:apprise:status"
+    cached = await get_json(cache_key)
+    if cached:
+        return AppriseStatus.model_validate(cached)
     enabled = is_apprise_enabled()
-    return AppriseStatus(enabled=enabled)
+    out = AppriseStatus(enabled=enabled)
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=30)
+    return out
 
 
 @router.post("/notify", response_model=NotificationResponse)
@@ -131,6 +138,11 @@ async def get_services(
         List of service info (id, name, description) - no URLs exposed
         Note: id is a hash of the service name for config-based services
     """
+    cache_key = "api:apprise:services"
+    cached = await get_json(cache_key)
+    if cached:
+        return [AppriseServiceInfo.model_validate(s) for s in cached]
+
     if not is_apprise_enabled():
         return []
     
@@ -164,6 +176,7 @@ async def get_services(
                     enabled=True
                 ))
         
+        await set_json(cache_key, [s.model_dump(mode="json") for s in services], ttl=30)
         return services
     except Exception as e:
         logger.error(f"Error fetching config services: {e}", exc_info=True)

@@ -21,6 +21,7 @@ from ..collectors.network_devices import discover_network_devices
 from ..collectors.dhcp import parse_dnsmasq_leases
 from ..collectors.network import collect_interface_stats
 from ..config import settings
+from ..utils.redis_client import get_json, set_json
 from sqlalchemy import func
 
 
@@ -132,6 +133,11 @@ async def get_bandwidth_history(
     Returns:
         List[BandwidthHistory]: Bandwidth history per interface
     """
+    cache_key = f"api:bandwidth:history:{interface or 'all'}:{time_range}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [BandwidthHistory.model_validate(d) for d in cached]
+
     # Parse time range
     time_delta = parse_time_range(time_range)
     start_time = datetime.now(timezone.utc) - time_delta
@@ -268,6 +274,7 @@ async def get_bandwidth_history(
             data=processed_points
         ))
     
+    await set_json(cache_key, [h.model_dump(mode="json") for h in history_list], ttl=settings.redis_cache_ttl_history)
     return history_list
 
 
@@ -608,6 +615,11 @@ async def get_client_bandwidth_history(
     # Normalize MAC address
     mac_address = mac_address.lower().replace('-', ':')
     
+    cache_key = f"api:bandwidth:clients:{mac_address}:{time_range}:{interval}"
+    cached = await get_json(cache_key)
+    if cached:
+        return ClientBandwidthHistory.model_validate(cached)
+    
     async with AsyncSessionLocal() as session:
         # Query database for client bandwidth stats
         query = select(ClientBandwidthStatsDB).where(
@@ -721,12 +733,14 @@ async def get_client_bandwidth_history(
                 tx_bytes=bucket['tx_bytes']
             ))
     
-    return ClientBandwidthHistory(
+    out = ClientBandwidthHistory(
         mac_address=mac_address,
         ip_address=ip_address,
         network=network,
         data=data_points
     )
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=settings.redis_cache_ttl_history)
+    return out
 
 
 @router.get("/clients/history/bulk")
@@ -747,6 +761,11 @@ async def get_bulk_client_bandwidth_history(
     Returns:
         Dict mapping MAC addresses to ClientBandwidthHistory objects
     """
+    cache_key = f"api:bandwidth:bulk:{time_range}:{interval}"
+    cached = await get_json(cache_key)
+    if cached:
+        return {mac: ClientBandwidthHistory.model_validate(d) for mac, d in cached.items()}
+
     # Parse time range
     time_delta = parse_time_range(time_range)
     start_time = datetime.now(timezone.utc) - time_delta
@@ -882,6 +901,7 @@ async def get_bulk_client_bandwidth_history(
             data=data_points
         )
     
+    await set_json(cache_key, {mac: h.model_dump(mode="json") for mac, h in results.items()}, ttl=settings.redis_cache_ttl_history)
     return results
 
 
@@ -1111,6 +1131,11 @@ async def get_connection_history(
     time_delta = parse_time_range(time_range)
     start_time = datetime.now(timezone.utc) - time_delta
     
+    cache_key = f"api:bandwidth:connections:{client_ip}:{remote_ip}:{remote_port}:{time_range}:{interval}"
+    cached = await get_json(cache_key)
+    if cached:
+        return ClientConnectionHistory.model_validate(cached)
+    
     # Determine aggregation level for query
     agg_level = _get_aggregation_level_for_range(time_delta)
     
@@ -1241,10 +1266,12 @@ async def get_connection_history(
                 tx_bytes=bucket['tx_bytes']
             ))
     
-    return ClientConnectionHistory(
+    out = ClientConnectionHistory(
         client_ip=client_ip,
         remote_ip=remote_ip,
         remote_port=remote_port,
         data=data_points
     )
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=settings.redis_cache_ttl_history)
+    return out
 

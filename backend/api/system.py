@@ -21,7 +21,8 @@ from ..collectors.system import (
 )
 from ..collectors.clients import collect_client_stats
 from ..database import AsyncSessionLocal, SystemMetricsDB, DiskIOMetricsDB, TemperatureMetricsDB
-from ..utils.redis_client import get_json
+from ..utils.redis_client import get_json, set_json
+from ..config import settings
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -192,6 +193,11 @@ async def get_system_history(
     Returns:
         SystemHistory: Historical data points
     """
+    cache_key = f"api:system:history:{time_range}"
+    cached = await get_json(cache_key)
+    if cached:
+        return SystemHistory.model_validate(cached)
+
     async with AsyncSessionLocal() as session:
         # Parse time range
         time_delta = parse_time_range(time_range)
@@ -216,7 +222,9 @@ async def get_system_history(
             for m in metrics
         ]
         
-        return SystemHistory(data=data_points)
+        out = SystemHistory(data=data_points)
+        await set_json(cache_key, out.model_dump(mode="json"), ttl=settings.redis_cache_ttl_history)
+        return out
 
 
 @router.get("/disk-io/history")
@@ -234,6 +242,11 @@ async def get_disk_io_history(
     Returns:
         List[DiskIOHistory]: Historical data per device
     """
+    cache_key = f"api:system:disk_io_history:{device or 'all'}:{time_range}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [DiskIOHistory.model_validate(d) for d in cached]
+
     async with AsyncSessionLocal() as session:
         # Parse time range
         time_delta = parse_time_range(time_range)
@@ -261,10 +274,12 @@ async def get_disk_io_history(
                 )
             )
         
-        return [
+        out = [
             DiskIOHistory(device=dev, data=data)
             for dev, data in devices.items()
         ]
+        await set_json(cache_key, [h.model_dump(mode="json") for h in out], ttl=settings.redis_cache_ttl_history)
+        return out
 
 
 @router.get("/temperatures/history")
@@ -282,6 +297,11 @@ async def get_temperature_history(
     Returns:
         List[TemperatureHistory]: Historical data per sensor
     """
+    cache_key = f"api:system:temperature_history:{sensor or 'all'}:{time_range}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [TemperatureHistory.model_validate(d) for d in cached]
+
     async with AsyncSessionLocal() as session:
         # Parse time range
         time_delta = parse_time_range(time_range)
@@ -309,10 +329,12 @@ async def get_temperature_history(
                 )
             )
         
-        return [
-            TemperatureHistory(sensor_name=sensor, data=data)
-            for sensor, data in sensors.items()
+        out = [
+            TemperatureHistory(sensor_name=sensor_name, data=data)
+            for sensor_name, data in sensors.items()
         ]
+        await set_json(cache_key, [h.model_dump(mode="json") for h in out], ttl=settings.redis_cache_ttl_history)
+        return out
 
 
 def _find_fastfetch() -> str:

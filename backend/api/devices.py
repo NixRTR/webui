@@ -20,7 +20,7 @@ from ..auth import get_current_user
 from ..collectors.network_devices import discover_network_devices, get_device_count_by_network
 from ..collectors.dhcp import parse_dnsmasq_leases, trigger_new_device_scans
 from ..database import AsyncSessionLocal, DeviceOverrideDB, NetworkDeviceDB, DevicePortScanDB, DevicePortScanResultDB
-from ..utils.redis_client import delete as redis_delete
+from ..utils.redis_client import delete as redis_delete, get_json, set_json
 from ..workers.port_scanner import queue_port_scan
 import logging
 
@@ -627,6 +627,12 @@ async def get_device_by_mac(
     """Get a single device by MAC address (hardware identity).
     Returns current IP, hostname, network, etc. 404 if not found.
     """
+    mac_lower = mac_address.lower()
+    cache_key = f"api:devices:by_mac:{mac_lower}"
+    cached = await get_json(cache_key)
+    if cached:
+        return NetworkDevice.model_validate(cached)
+
     dhcp_leases = parse_dnsmasq_leases()
     devices = discover_network_devices(dhcp_leases)
     devices = [d for d in devices if _is_ipv4(d.ip_address)]
@@ -703,10 +709,11 @@ async def get_device_by_mac(
         else:
             devices_by_mac[key] = nd
 
-    mac_lower = mac_address.lower()
     if mac_lower not in devices_by_mac:
         raise HTTPException(status_code=404, detail="Device not found")
-    return devices_by_mac[mac_lower]
+    out = devices_by_mac[mac_lower]
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=30)
+    return out
 
 
 @router.get("/by-mac/{mac_address}/ip-history", response_model=List[IpHistoryEntry])
@@ -715,6 +722,12 @@ async def get_device_ip_history(
     _: str = Depends(get_current_user)
 ) -> List[IpHistoryEntry]:
     """Get IP address history for a device (MAC). From port scan records."""
+    mac_lower = mac_address.lower()
+    cache_key = f"api:devices:ip_history:{mac_lower}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [IpHistoryEntry.model_validate(d) for d in cached]
+
     async with AsyncSessionLocal() as session:
         stmt = (
             select(
@@ -728,10 +741,12 @@ async def get_device_ip_history(
         )
         result = await session.execute(stmt)
         rows = result.all()
-    return [
+    out = [
         IpHistoryEntry(ip_address=str(r.ip_address), last_seen=r.last_seen)
         for r in rows
     ]
+    await set_json(cache_key, [e.model_dump(mode="json") for e in out], ttl=60)
+    return out
 
 
 class PortInfo(BaseModel):
@@ -770,6 +785,12 @@ async def get_device_port_scan(
     Returns:
         PortScanResult: Latest port scan results with port details
     """
+    mac_lower = mac_address.lower()
+    cache_key = f"api:devices:ports:{mac_lower}"
+    cached = await get_json(cache_key)
+    if cached:
+        return PortScanResult.model_validate(cached)
+
     async with AsyncSessionLocal() as session:
         # Get the latest scan for this device (limit 1 so scalar_one_or_none is valid)
         result = await session.execute(
@@ -803,7 +824,7 @@ async def get_device_port_scan(
             for pr in port_records
         ]
         
-        return PortScanResult(
+        out = PortScanResult(
             scan_id=scan_record.id,
             mac_address=str(scan_record.mac_address),
             ip_address=str(scan_record.ip_address),
@@ -813,6 +834,8 @@ async def get_device_port_scan(
             error_message=scan_record.error_message,
             ports=ports
         )
+        await set_json(cache_key, out.model_dump(mode="json"), ttl=60)
+        return out
 
 
 @router.post("/{mac_address}/ports/scan")

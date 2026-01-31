@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     redis_cache_ttl_rules: int = 60  # seconds
     redis_cache_ttl_overrides: int = 30  # seconds
     redis_cache_ttl_api: int = 15  # seconds (increased to reduce CPU usage)
+    redis_cache_ttl_history: int = 60  # seconds for history endpoints (system, bandwidth, connection)
+    redis_cache_ttl_worker_status: int = 8  # seconds for worker status (polling page)
+    redis_cache_ttl_speedtest: int = 90  # seconds for speedtest history/chart (results change rarely)
 
     # Worker Status (Celery) - threshold in seconds for "long-running" tasks
     worker_status_long_running_seconds: int = 300

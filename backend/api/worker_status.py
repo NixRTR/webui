@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from ..auth import get_current_user
 from ..celery_app import app
 from ..config import settings
-from ..utils.redis_client import get_redis_client
+from ..utils.redis_client import get_redis_client, get_json, set_json
 from ..workers.test_task import run_test_task
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,11 @@ def _parse_eta(eta_str: Optional[str]) -> Optional[datetime]:
 @router.get("", response_model=WorkerStatusResponse)
 async def get_worker_status(_: str = Depends(get_current_user)):
     """Return queue stats, active, reserved, scheduled, overdue, and long-running tasks."""
+    cache_key = "api:worker_status"
+    cached = await get_json(cache_key)
+    if cached:
+        return WorkerStatusResponse.model_validate(cached)
+
     # Queue lengths from Redis (async)
     queue_lengths: Dict[str, int] = {}
     client = await get_redis_client()
@@ -207,7 +212,7 @@ async def get_worker_status(_: str = Depends(get_current_user)):
             except Exception:
                 pass
 
-    return WorkerStatusResponse(
+    out = WorkerStatusResponse(
         queues=queues,
         active_tasks=active_tasks,
         reserved_tasks=reserved_tasks,
@@ -215,6 +220,8 @@ async def get_worker_status(_: str = Depends(get_current_user)):
         overdue_tasks=overdue_tasks,
         long_running_tasks=long_running_tasks,
     )
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=settings.redis_cache_ttl_worker_status)
+    return out
 
 
 @router.post("/tasks/{task_id}/revoke", status_code=204)

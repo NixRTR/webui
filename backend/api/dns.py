@@ -28,6 +28,7 @@ from ..utils.config_reader import (
 )
 from ..utils.config_manager import update_dns_record_in_config
 from ..utils.dnsmasq_parser import parse_dnsmasq_config_file
+from ..utils.redis_client import get_json, set_json
 import json
 from datetime import datetime
 import os
@@ -319,6 +320,11 @@ async def get_zones(
     Returns:
         List of DNS zones
     """
+    cache_key = f"api:dns:zones:{network or 'all'}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [DnsZone.model_validate(z) for z in cached]
+
     all_zones = []
     
     networks = ['homelab', 'lan'] if not network else [network]
@@ -332,7 +338,9 @@ async def get_zones(
             zone_dict['id'] = hash(f"{net}:{zone_dict['name']}") % (2**31)  # Temporary ID
             all_zones.append(DnsZone.model_validate(zone_dict))
     
-    return sorted(all_zones, key=lambda z: (z.network, z.name))
+    out = sorted(all_zones, key=lambda z: (z.network, z.name))
+    await set_json(cache_key, [z.model_dump(mode="json") for z in out], ttl=30)
+    return out
 
 
 @router.post("/zones", response_model=DnsZone)
@@ -398,6 +406,11 @@ async def get_zone(
     if network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    cache_key = f"api:dns:zone:{network}:{zone_name}"
+    cached = await get_json(cache_key)
+    if cached:
+        return DnsZone.model_validate(cached)
+    
     zones = get_dns_zones_from_config(network)
     zone = next((z for z in zones if z['name'] == zone_name), None)
     
@@ -409,7 +422,9 @@ async def get_zone(
     
     # Convert to DnsZone model (assigning temporary ID for API compatibility)
     zone['id'] = hash(f"{network}:{zone_name}") % (2**31)
-    return DnsZone.model_validate(zone)
+    out = DnsZone.model_validate(zone)
+    await set_json(cache_key, out.model_dump(mode="json"), ttl=30)
+    return out
 
 
 @router.put("/zones/{zone_name}", response_model=DnsZone)
@@ -555,6 +570,11 @@ async def get_zone_records(
     if network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    cache_key = f"api:dns:records:{network}:{zone_name}"
+    cached = await get_json(cache_key)
+    if cached:
+        return [DnsRecord.model_validate(r) for r in cached]
+    
     records = get_dns_records_from_config(network, zone_name=zone_name)
     
     result = []
@@ -564,7 +584,9 @@ async def get_zone_records(
         record_dict['zone_id'] = hash(f"{network}:{zone_name}") % (2**31)  # Temporary zone_id
         result.append(DnsRecord.model_validate(record_dict))
     
-    return sorted(result, key=lambda r: (r.type, r.name))
+    out = sorted(result, key=lambda r: (r.type, r.name))
+    await set_json(cache_key, [r.model_dump(mode="json") for r in out], ttl=30)
+    return out
 
 
 @router.post("/zones/{zone_name}/records", response_model=DnsRecord)
