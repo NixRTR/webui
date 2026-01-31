@@ -3,10 +3,11 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Badge, Button, Modal, Select, Label, TextInput, Tooltip as FlowbiteTooltip, Spinner } from 'flowbite-react';
+import { Card, Table, Badge, Button, Modal, Select, Label, TextInput, Tooltip as FlowbiteTooltip, Spinner, Dropdown, DropdownItem } from 'flowbite-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { CustomTooltip } from '../components/charts/CustomTooltip';
-import { HiSearch } from 'react-icons/hi';
+import { TruncatedCell } from '../components/TruncatedCell';
+import { HiSearch, HiDotsVertical } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
@@ -345,18 +346,6 @@ export function DeviceUsage() {
   };
 
 
-  // Helper function to truncate text with tooltip
-  const TruncatedText = ({ text, maxLength = 20 }: { text: string; maxLength?: number }) => {
-    if (text.length <= maxLength) {
-      return <span>{text}</span>;
-    }
-    return (
-      <FlowbiteTooltip content={text} placement="top">
-        <span className="cursor-help truncate block max-w-[200px]">{text}</span>
-      </FlowbiteTooltip>
-    );
-  };
-
   // Sort IP address with zero-padded last octet for sorting (but not display)
   const getSortableIP = (ip: string): string => {
     const parts = ip.split('.');
@@ -677,52 +666,57 @@ export function DeviceUsage() {
                     };
                     
                     return (
-                      <Table.Row key={device.mac_address} className={!device.is_online ? 'opacity-50' : ''}>
-                        <Table.Cell className="font-medium max-w-[200px]">
-                          <TruncatedText text={device.hostname || 'Unknown'} maxLength={20} />
+                      <Table.Row key={device.mac_address} className={`whitespace-nowrap ${!device.is_online ? 'opacity-50' : ''}`}>
+                        <Table.Cell className="font-medium min-w-0 max-w-[200px]">
+                          <TruncatedCell value={device.hostname || 'Unknown'} />
                         </Table.Cell>
-                        <Table.Cell className="font-mono text-sm hidden lg:table-cell">
-                          {device.mac_address}
+                        <Table.Cell className="font-mono text-sm hidden lg:table-cell min-w-0 max-w-[160px]">
+                          <TruncatedCell value={device.mac_address} />
                         </Table.Cell>
-                        <Table.Cell className="font-mono text-sm">{device.ip_address}</Table.Cell>
-                        <Table.Cell>
-                          {/* Show text above 1650px, circle below */}
+                        <Table.Cell className="font-mono text-sm min-w-0 max-w-[140px]">
+                          <TruncatedCell value={device.ip_address} />
+                        </Table.Cell>
+                        <Table.Cell className="align-middle w-12">
                           <div className="hidden xl-custom:block">
                             <Badge color={device.is_online ? 'success' : 'gray'} size="sm">
                               {device.is_online ? 'ONLINE' : 'OFFLINE'}
                             </Badge>
                           </div>
-                          <div className="xl-custom:hidden">
+                          <div className="xl-custom:hidden flex items-center justify-center">
                             <FlowbiteTooltip content={device.is_online ? 'Online' : 'Offline'} placement="top">
-                              <div className={`w-3 h-3 rounded-full ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                             </FlowbiteTooltip>
                           </div>
                         </Table.Cell>
-                        <Table.Cell className="text-sm">
-                          {formatBytes(averages.dl_1h)}
+                        <Table.Cell className="text-sm min-w-0">
+                          <TruncatedCell value={formatBytes(averages.dl_1h)} />
                         </Table.Cell>
-                        <Table.Cell className="text-sm">
-                          {formatBytes(averages.ul_1h)}
+                        <Table.Cell className="text-sm min-w-0">
+                          <TruncatedCell value={formatBytes(averages.ul_1h)} />
                         </Table.Cell>
-                        <Table.Cell>
-                          <div className="flex gap-1">
-                            <Button size="xs" color="blue" onClick={() => openChart(device)}>
+                        <Table.Cell className="whitespace-nowrap w-10">
+                          <Dropdown
+                            label=""
+                            dismissOnClick={true}
+                            renderTrigger={() => (
+                              <Button size="xs" color="gray" className="px-2">
+                                <HiDotsVertical className="w-4 h-4" />
+                              </Button>
+                            )}
+                          >
+                            <DropdownItem onClick={() => openChart(device)}>
                               Chart
-                            </Button>
-                            <Button size="xs" color="gray" onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)}>
+                            </DropdownItem>
+                            <DropdownItem onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)}>
                               Details
-                            </Button>
-                            <Button size="xs" color="gray" onClick={() => navigate(`/device-usage/${device.ip_address}`)}>
+                            </DropdownItem>
+                            <DropdownItem onClick={() => navigate(`/device-usage/${device.ip_address}`)}>
                               Usage
-                            </Button>
-                            <Button
-                              size="xs"
-                              color={isDeviceBlocked(device) ? 'success' : 'failure'}
-                              onClick={() => handleBlockToggle(device)}
-                            >
+                            </DropdownItem>
+                            <DropdownItem onClick={() => handleBlockToggle(device)}>
                               {isDeviceBlocked(device) ? 'Enable' : 'Disable'}
-                            </Button>
-                          </div>
+                            </DropdownItem>
+                          </Dropdown>
                         </Table.Cell>
                       </Table.Row>
                     );

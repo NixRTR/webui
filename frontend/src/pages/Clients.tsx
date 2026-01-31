@@ -3,14 +3,15 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Badge, TextInput, Select, Button, Tooltip, Modal } from 'flowbite-react';
-import { HiSearch, HiPencil, HiClock } from 'react-icons/hi';
+import { Card, Table, Badge, TextInput, Select, Button, Tooltip, Modal, Dropdown, DropdownItem } from 'flowbite-react';
+import { HiSearch, HiPencil, HiClock, HiDotsVertical } from 'react-icons/hi';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
 import type { NetworkDevice, PortScanResult, PortScanStatus } from '../types/devices';
 import { HostnameEditModal } from '../components/HostnameEditModal';
+import { TruncatedCell } from '../components/TruncatedCell';
 import type { DhcpNetwork } from '../types/dhcp';
 
 export function Clients() {
@@ -476,16 +477,16 @@ export function Clients() {
     }
   };
 
-  // Helper function to truncate text with tooltip
-  const TruncatedText = ({ text, maxLength = 20 }: { text: string; maxLength?: number }) => {
-    if (text.length <= maxLength) {
-      return <span>{text}</span>;
+  const handlePortScanAction = (device: NetworkDevice) => {
+    if (!device.is_online) return;
+    const macLower = device.mac_address.toLowerCase();
+    const status = portScanStatuses.get(macLower);
+    if (status === 'pending' || status === 'in_progress') return;
+    if (status === 'failed') {
+      triggerPortScan(device.mac_address);
+    } else {
+      fetchPortScan(device.mac_address);
     }
-    return (
-      <Tooltip content={text} placement="top">
-        <span className="cursor-help truncate block max-w-[200px]">{text}</span>
-      </Tooltip>
-    );
   };
 
   return (
@@ -684,10 +685,12 @@ export function Clients() {
                 </Table.Head>
                 <Table.Body className="divide-y">
                   {sortedDevices.map((device) => (
-                    <Table.Row key={device.mac_address} className={!device.is_online ? 'opacity-50' : ''}>
-                      <Table.Cell className="font-mono text-sm">{device.ip_address}</Table.Cell>
-                      <Table.Cell className="font-medium max-w-[200px]">
-                        <div className="flex items-center gap-2">
+                    <Table.Row key={device.mac_address} className={`whitespace-nowrap ${!device.is_online ? 'opacity-50' : ''}`}>
+                      <Table.Cell className="font-mono text-sm min-w-0 max-w-[140px]">
+                        <TruncatedCell value={device.ip_address} />
+                      </Table.Cell>
+                      <Table.Cell className="font-medium min-w-0 max-w-[200px]">
+                        <div className="flex items-center gap-2 min-w-0">
                           <button
                             className="text-yellow-500 hover:text-yellow-400 flex-shrink-0"
                             title={device.favorite ? 'Unfavorite' : 'Favorite'}
@@ -702,87 +705,82 @@ export function Clients() {
                           >
                             <HiPencil className="w-4 h-4" />
                           </button>
-                          <TruncatedText text={device.hostname || 'Unknown'} maxLength={20} />
+                          <TruncatedCell value={device.hostname || 'Unknown'} className="min-w-0" />
                         </div>
                       </Table.Cell>
-                      <Table.Cell className="font-mono text-sm hidden lg:table-cell">
-                        {device.mac_address}
+                      <Table.Cell className="font-mono text-sm hidden lg:table-cell min-w-0 max-w-[160px]">
+                        <TruncatedCell value={device.mac_address} />
                       </Table.Cell>
-                      <Table.Cell className="text-sm text-gray-600 hidden xl:table-cell">
-                        {device.vendor || '—'}
+                      <Table.Cell className="text-sm text-gray-600 dark:text-gray-400 hidden xl:table-cell min-w-0 max-w-[180px]">
+                        <TruncatedCell value={device.vendor ?? ''} emptyPlaceholder="—" />
                       </Table.Cell>
-                      <Table.Cell>
-                        {/* Show text above 1650px, circle below */}
+                      <Table.Cell className="align-middle w-12">
                         <div className="hidden xl-custom:block">
                           <Badge color={device.network === 'homelab' ? 'info' : 'purple'} size="sm">
-                          {device.network.toUpperCase()}
-                        </Badge>
+                            {device.network.toUpperCase()}
+                          </Badge>
                         </div>
-                        <div className="xl-custom:hidden">
+                        <div className="xl-custom:hidden flex items-center justify-center">
                           <Tooltip content={device.network.toUpperCase()} placement="top">
-                            <div className={`w-3 h-3 rounded-full ${device.network === 'homelab' ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
+                            <div className={`w-3 h-3 rounded-full flex-shrink-0 ${device.network === 'homelab' ? 'bg-blue-500' : 'bg-purple-500'}`}></div>
                           </Tooltip>
                         </div>
                       </Table.Cell>
-                      <Table.Cell>
-                        {/* Show text above 1650px, circle below */}
+                      <Table.Cell className="align-middle w-12">
                         <div className="hidden xl-custom:block">
-                        <Badge color={device.is_online ? 'success' : 'gray'} size="sm">
+                          <Badge color={device.is_online ? 'success' : 'gray'} size="sm">
                             {device.is_online ? 'ONLINE' : 'OFFLINE'}
-                        </Badge>
+                          </Badge>
                         </div>
-                        <div className="xl-custom:hidden">
+                        <div className="xl-custom:hidden flex items-center justify-center">
                           <Tooltip content={device.is_online ? 'Online' : 'Offline'} placement="top">
-                            <div className={`w-3 h-3 rounded-full ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                            <div className={`w-3 h-3 rounded-full flex-shrink-0 ${device.is_online ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                           </Tooltip>
                         </div>
                       </Table.Cell>
-                      <Table.Cell>
-                        {/* Show text above 1650px, circle below */}
+                      <Table.Cell className="align-middle w-12">
                         <div className="hidden xl-custom:block">
                           <Badge color={device.is_dhcp ? 'warning' : 'gray'} size="sm">
                             {device.is_dhcp ? 'DHCP' : 'Static'}
-                        </Badge>
+                          </Badge>
                         </div>
-                        <div className="xl-custom:hidden">
-                          <Tooltip 
-                            content={device.is_dhcp ? 'DHCP' : 'Static'} 
-                            placement="top"
-                          >
-                            <div className={`w-3 h-3 rounded-full ${
-                              device.is_dhcp ? 'bg-yellow-500' : 'bg-gray-500'
-                            }`}></div>
+                        <div className="xl-custom:hidden flex items-center justify-center">
+                          <Tooltip content={device.is_dhcp ? 'DHCP' : 'Static'} placement="top">
+                            <div className={`w-3 h-3 rounded-full flex-shrink-0 ${device.is_dhcp ? 'bg-yellow-500' : 'bg-gray-500'}`}></div>
                           </Tooltip>
                         </div>
                       </Table.Cell>
-                      <Table.Cell className="text-sm whitespace-nowrap">
-                        {formatLastSeen(device.last_seen)}
+                      <Table.Cell className="text-sm min-w-0 max-w-[100px]">
+                        <TruncatedCell value={formatLastSeen(device.last_seen)} />
                       </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex gap-1 flex-wrap">
-                          <Button
-                            size="xs"
-                            color="gray"
-                            onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)}
-                          >
-                            Details
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="gray"
-                            onClick={() => navigate(`/devices/${device.ip_address}`)}
-                          >
-                            Usage
-                          </Button>
-                        <Button
-                          size="xs"
-                          color={isDeviceBlocked(device) ? 'success' : 'failure'}
-                          onClick={() => handleBlockToggle(device)}
+                      <Table.Cell className="whitespace-nowrap w-10">
+                        <Dropdown
+                          label=""
+                          dismissOnClick={true}
+                          renderTrigger={() => (
+                            <Button size="xs" color="gray" className="px-2">
+                              <HiDotsVertical className="w-4 h-4" />
+                            </Button>
+                          )}
                         >
-                          {isDeviceBlocked(device) ? 'Enable' : 'Disable'}
-                        </Button>
-                        {getPortScanButton(device)}
-                        </div>
+                          <DropdownItem onClick={() => navigate(`/devices/by-mac/${device.mac_address}`)}>
+                            Details
+                          </DropdownItem>
+                          <DropdownItem onClick={() => navigate(`/devices/${device.ip_address}`)}>
+                            Usage
+                          </DropdownItem>
+                          <DropdownItem onClick={() => handleBlockToggle(device)}>
+                            {isDeviceBlocked(device) ? 'Enable' : 'Disable'}
+                          </DropdownItem>
+                          <DropdownItem
+                            onClick={() => handlePortScanAction(device)}
+                            disabled={!device.is_online || portScanStatuses.get(device.mac_address.toLowerCase()) === 'pending' || portScanStatuses.get(device.mac_address.toLowerCase()) === 'in_progress'}
+                          >
+                            {portScanStatuses.get(device.mac_address.toLowerCase()) === 'pending' || portScanStatuses.get(device.mac_address.toLowerCase()) === 'in_progress'
+                              ? 'Ports (scanning…)'
+                              : 'Ports'}
+                          </DropdownItem>
+                        </Dropdown>
                       </Table.Cell>
                     </Table.Row>
                   ))}
