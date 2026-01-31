@@ -58,6 +58,10 @@ async def get_logs(
         return StreamingResponse(
             _stream_logs(service, lines),
             media_type="text/plain; charset=utf-8",
+            headers={
+                "X-Accel-Buffering": "no",  # Nginx: disable proxy buffering
+                "Cache-Control": "no-cache",
+            },
         )
 
     proc = await asyncio.create_subprocess_exec(
@@ -72,6 +76,9 @@ async def get_logs(
 
 
 async def _stream_logs(service_id: str, lines: int) -> AsyncIterator[bytes]:
+    # Send a tiny first chunk so the HTTP response starts immediately and the client stops showing "Connecting..."
+    yield b""
+
     args = _build_journalctl_args(service_id, lines, follow=True)
     # Use stdbuf to force line-unbuffered output so chunks reach the client immediately (if available)
     if shutil.which("stdbuf"):
@@ -85,8 +92,9 @@ async def _stream_logs(service_id: str, lines: int) -> AsyncIterator[bytes]:
     )
     try:
         if proc.stdout:
+            # Use smaller reads so first journal lines are sent quickly (don't wait for 4KB)
             while True:
-                chunk = await proc.stdout.read(4096)
+                chunk = await proc.stdout.read(1024)
                 if not chunk:
                     break
                 yield chunk

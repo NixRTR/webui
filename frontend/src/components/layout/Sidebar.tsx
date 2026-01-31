@@ -264,7 +264,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
             </FlowbiteSidebar.ItemGroup>
 
             <FlowbiteSidebar.ItemGroup>
-              <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
               <FlowbiteSidebar.Item
                 icon={HiLogout}
                 style={{ cursor: 'pointer' }}
