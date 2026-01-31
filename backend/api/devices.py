@@ -648,8 +648,8 @@ async def get_device_by_mac(
             )
         )
         for db_dev in result.scalars().all():
-            mac_lower = str(db_dev.mac_address).lower()
-            if _is_ipv4(str(db_dev.ip_address)) and mac_lower not in seen_macs:
+            db_mac_lower = str(db_dev.mac_address).lower()
+            if _is_ipv4(str(db_dev.ip_address)) and db_mac_lower not in seen_macs:
                 from ..collectors.network_devices import NetworkDevice as ND
                 devices.append(ND(
                     network=db_dev.network,
@@ -662,7 +662,7 @@ async def get_device_by_mac(
                     is_online=db_dev.is_online,
                     last_seen=db_dev.last_seen,
                 ))
-                seen_macs.add(mac_lower)
+                seen_macs.add(db_mac_lower)
 
     from ..utils.redis_client import get_json, set_json
     from ..config import settings
