@@ -664,7 +664,6 @@ async def get_device_by_mac(
                 ))
                 seen_macs.add(db_mac_lower)
 
-    from ..utils.redis_client import get_json, set_json
     from ..config import settings
     cache_key = "device_overrides:all"
     cached_overrides = await get_json(cache_key)
