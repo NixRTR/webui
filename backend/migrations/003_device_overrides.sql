@@ -13,19 +13,19 @@ CREATE TABLE IF NOT EXISTS device_overrides (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_device_overrides_mac ON device_overrides(mac_address);
 
--- Trigger to update updated_at on change
+-- Trigger to update updated_at on change (use $func$ so outer DO $$ is not closed early)
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'device_overrides_updated_at'
   ) THEN
     CREATE OR REPLACE FUNCTION set_updated_at()
-    RETURNS TRIGGER AS $$
+    RETURNS TRIGGER AS $func$
     BEGIN
       NEW.updated_at = NOW();
       RETURN NEW;
     END;
-    $$ LANGUAGE plpgsql;
+    $func$ LANGUAGE plpgsql;
 
     CREATE TRIGGER device_overrides_updated_at
     BEFORE UPDATE ON device_overrides

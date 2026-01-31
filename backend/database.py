@@ -1083,7 +1083,7 @@ async def _apply_schema_updates(conn):
                     network VARCHAR(50) NOT NULL UNIQUE,
                     enabled BOOLEAN DEFAULT TRUE,
                     start INET NOT NULL,
-                    end INET NOT NULL,
+                    "end" INET NOT NULL,
                     lease_time VARCHAR(20) NOT NULL,
                     dns_servers INET[],
                     dynamic_domain TEXT,

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS dhcp_networks (
     network VARCHAR(50) NOT NULL UNIQUE,  -- "homelab" or "lan"
     enabled BOOLEAN DEFAULT TRUE,
     start INET NOT NULL,  -- IP range start
-    end INET NOT NULL,  -- IP range end
+    "end" INET NOT NULL,  -- IP range end (quoted: reserved word)
     lease_time VARCHAR(20) NOT NULL,  -- e.g., "1h", "1d", "86400"
     dns_servers INET[],  -- Array of DNS server IPs
     dynamic_domain TEXT,  -- Optional dynamic DNS domain (e.g., "dhcp.homelab.local")
