@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/worker-status", tags=["worker-status"])
 
 # Celery queue names (default + from task_routes)
-WORKER_QUEUES = ["celery", "sequential", "parallel"]
+WORKER_QUEUES = ["celery", "sequential", "parallel", "aggregation"]
 
 INSPECT_TIMEOUT = 5
 

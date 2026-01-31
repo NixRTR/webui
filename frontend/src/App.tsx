@@ -26,6 +26,7 @@ const DynDnsConfig = lazy(() => import('./pages/DynDnsConfig').then(m => ({ defa
 const PortForwarding = lazy(() => import('./pages/PortForwarding').then(m => ({ default: m.PortForwarding })));
 const BlocklistsWhitelist = lazy(() => import('./pages/BlocklistsWhitelist').then(m => ({ default: m.BlocklistsWhitelist })));
 const WorkerStatus = lazy(() => import('./pages/WorkerStatus').then(m => ({ default: m.WorkerStatus })));
+const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -250,6 +251,16 @@ export default function App() {
             <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
                 <WorkerStatus />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/system/logs"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <Logs />
               </Suspense>
             </ProtectedRoute>
           }

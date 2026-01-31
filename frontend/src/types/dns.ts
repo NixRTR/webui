@@ -73,4 +73,3 @@ export interface DynamicDnsEntry {
   mac_address: string;
   network: 'homelab' | 'lan';
 }
-

@@ -1,6 +1,8 @@
 """
 Celery configuration for background workers
 """
+import os
+
 from .config import settings
 from .celery_beat_schedule import beat_schedule as beat_schedule_config
 
@@ -9,9 +11,9 @@ task_serializer = 'json'
 accept_content = ['json']
 result_serializer = 'json'
 
-# Timezone
-timezone = 'UTC'
-enable_utc = True
+# Timezone: use TZ env for local schedule (e.g. 2 AM local); otherwise UTC
+timezone = os.environ.get('TZ', 'UTC')
+enable_utc = (timezone == 'UTC' or not os.environ.get('TZ'))
 
 # Task execution
 task_always_eager = False  # Don't execute tasks synchronously
@@ -42,7 +44,7 @@ task_routes = {
     # Sequential: one at a time (concurrency=1 worker)
     'backend.workers.port_scanner.scan_new_device_ports': {'queue': 'sequential'},
     # Parallel: can run concurrently
-    'backend.workers.aggregation.run_aggregation_job': {'queue': 'parallel'},
+    'backend.workers.aggregation.run_aggregation_job': {'queue': 'aggregation'},
     'backend.workers.notifications.evaluate_notifications': {'queue': 'parallel'},
     'backend.workers.redis_buffer.flush_buffers': {'queue': 'parallel'},
     'backend.workers.port_scanner_periodic.scan_devices_periodic': {'queue': 'parallel'},

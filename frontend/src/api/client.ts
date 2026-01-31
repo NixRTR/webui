@@ -752,6 +752,20 @@ class APIClient {
     const response = await this.client.post<TriggerTestTaskResponse>('/api/worker-status/test-task');
     return response.data;
   }
+
+  // Logs (systemd journal)
+  async getLogs(serviceId: string, lines: number = 200): Promise<string> {
+    const response = await this.client.get<string>('/api/logs', {
+      params: { service: serviceId, lines },
+      responseType: 'text',
+    });
+    return response.data;
+  }
+
+  async getLogServices(): Promise<{ id: string; label: string }[]> {
+    const response = await this.client.get<{ id: string; label: string }[]>('/api/logs/services');
+    return response.data;
+  }
 }
 
 export const apiClient = new APIClient();

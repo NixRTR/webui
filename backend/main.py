@@ -53,6 +53,7 @@ from .api.port_forwarding import router as port_forwarding_router
 from .api.blocklists import router as blocklists_router
 from .api.whitelist import router as whitelist_router
 from .api.worker_status import router as worker_status_router
+from .api.logs import router as logs_router
 from .utils.redis_client import close_redis_client
 from .utils.apprise import migrate_secrets_to_database
 from .utils.dns import migrate_dns_config_to_database
@@ -160,6 +161,7 @@ app.include_router(port_forwarding_router)
 app.include_router(blocklists_router)
 app.include_router(whitelist_router)
 app.include_router(worker_status_router)
+app.include_router(logs_router)
 
 
 @app.get("/api")
