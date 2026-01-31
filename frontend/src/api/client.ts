@@ -753,10 +753,21 @@ class APIClient {
     return response.data;
   }
 
-  // Logs (systemd journal)
-  async getLogs(serviceId: string, lines: number = 200): Promise<string> {
+  // Logs (systemd journal). priority: 'all' | 'err' | 'warning' | 'info' | 'debug'
+  async getLogs(
+    serviceId: string,
+    lines: number = 200,
+    priority: string = 'all'
+  ): Promise<string> {
+    const params: Record<string, string | number> = {
+      service: serviceId,
+      lines,
+    };
+    if (priority && priority !== 'all') {
+      params.priority = priority;
+    }
     const response = await this.client.get<string>('/api/logs', {
-      params: { service: serviceId, lines },
+      params,
       responseType: 'text',
     });
     return response.data;

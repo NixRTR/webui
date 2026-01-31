@@ -32,11 +32,19 @@ LOG_SERVICES: dict[str, str | None] = {
 MAX_LINES = 2000
 DEFAULT_LINES = 200
 
+# Log level filter: minimum severity (syslog priority). "all" = no filter.
+# journalctl -p: err=3 (err and more severe), warning=4, info=6, debug=7 (all).
+PRIORITY_VALUES = frozenset({"all", "err", "warning", "info", "debug"})
 
-def _build_journalctl_args(service_id: str, lines: int, follow: bool) -> list[str]:
+
+def _build_journalctl_args(
+    service_id: str, lines: int, follow: bool, priority: str | None = None
+) -> list[str]:
     args = ["journalctl", "-n", str(lines), "--no-pager"]
     if follow:
         args.append("-f")
+    if priority and priority != "all" and priority in PRIORITY_VALUES:
+        args.extend(["-p", priority])
     unit = LOG_SERVICES.get(service_id)
     if unit:
         args.extend(["-u", unit])
@@ -48,15 +56,21 @@ async def get_logs(
     service: str = Query(..., description="Service ID (e.g. system, router-webui-backend)"),
     lines: int = Query(DEFAULT_LINES, ge=1, le=MAX_LINES, description="Number of lines"),
     follow: bool = Query(False, description="Stream new lines (live tail)"),
+    priority: str = Query(
+        "all",
+        description="Minimum log level: all, err, warning, info, debug",
+    ),
     _: str = Depends(get_current_user),
 ):
     """Get recent log lines for a service. Use follow=true for streaming."""
     if service not in LOG_SERVICES:
         raise HTTPException(status_code=400, detail=f"Unknown service: {service}")
+    if priority not in PRIORITY_VALUES:
+        raise HTTPException(status_code=400, detail=f"Invalid priority: {priority}")
 
     if follow:
         return StreamingResponse(
-            _stream_logs(service, lines),
+            _stream_logs(service, lines, priority),
             media_type="text/plain; charset=utf-8",
             headers={
                 "X-Accel-Buffering": "no",  # Nginx: disable proxy buffering
@@ -65,7 +79,7 @@ async def get_logs(
         )
 
     proc = await asyncio.create_subprocess_exec(
-        *_build_journalctl_args(service, lines, follow=False),
+        *_build_journalctl_args(service, lines, follow=False, priority=priority),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -75,11 +89,13 @@ async def get_logs(
     return PlainTextResponse(stdout.decode("utf-8", errors="replace") if stdout else "")
 
 
-async def _stream_logs(service_id: str, lines: int) -> AsyncIterator[bytes]:
+async def _stream_logs(
+    service_id: str, lines: int, priority: str = "all"
+) -> AsyncIterator[bytes]:
     # Send a tiny first chunk so the HTTP response starts immediately and the client stops showing "Connecting..."
     yield b""
 
-    args = _build_journalctl_args(service_id, lines, follow=True)
+    args = _build_journalctl_args(service_id, lines, follow=True, priority=priority)
     # Use stdbuf to force line-unbuffered output so chunks reach the client immediately (if available)
     if shutil.which("stdbuf"):
         exec_args = ["stdbuf", "-oL"] + args

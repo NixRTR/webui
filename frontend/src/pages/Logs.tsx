@@ -27,6 +27,14 @@ const LOG_SOURCES = [
 
 const LINES_OPTIONS = [100, 200, 500, 1000, 2000];
 
+const LOG_LEVEL_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'err', label: 'Error' },
+  { value: 'warning', label: 'Warning' },
+  { value: 'info', label: 'Info' },
+  { value: 'debug', label: 'Debug' },
+];
+
 export function Logs() {
   const token = localStorage.getItem('access_token');
   const username = localStorage.getItem('username') || 'Unknown';
@@ -34,6 +42,7 @@ export function Logs() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serviceId, setServiceId] = useState(LOG_SOURCES[0].id);
   const [lines, setLines] = useState(500);
+  const [priority, setPriority] = useState<string>('all');
   const [follow, setFollow] = useState(false);
   const [logText, setLogText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,12 +53,12 @@ export function Logs() {
   const { connectionStatus } = useMetrics(token);
 
   const fetchLogs = useCallback(
-    async (lineCount: number) => {
+    async (lineCount: number, level: string = priority) => {
       if (!serviceId || !token) return;
       setLoading(true);
       setError(null);
       try {
-        const text = await apiClient.getLogs(serviceId, lineCount);
+        const text = await apiClient.getLogs(serviceId, lineCount, level);
         setLogText(text);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load logs';
@@ -59,15 +68,15 @@ export function Logs() {
         setLoading(false);
       }
     },
-    [serviceId, token]
+    [serviceId, token, priority]
   );
 
-  // One-shot load when service or lines change (and not following)
+  // One-shot load when service, lines, or priority change (and not following)
   useEffect(() => {
     if (!follow && serviceId) {
-      fetchLogs(lines);
+      fetchLogs(lines, priority);
     }
-  }, [serviceId, lines, follow, fetchLogs]);
+  }, [serviceId, lines, priority, follow, fetchLogs]);
 
   // Follow mode: stream logs with selected lines
   useEffect(() => {
@@ -77,7 +86,13 @@ export function Logs() {
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const url = `${API_BASE_URL}/api/logs?service=${encodeURIComponent(serviceId)}&lines=${lines}&follow=true`;
+    const params = new URLSearchParams({
+      service: serviceId,
+      lines: String(lines),
+      follow: 'true',
+    });
+    if (priority && priority !== 'all') params.set('priority', priority);
+    const url = `${API_BASE_URL}/api/logs?${params.toString()}`;
     (async () => {
       try {
         const response = await fetch(url, {
@@ -110,7 +125,7 @@ export function Logs() {
       controller.abort();
       abortRef.current = null;
     };
-  }, [follow, serviceId, lines, token]);
+  }, [follow, serviceId, lines, priority, token]);
 
   useEffect(() => {
     if (preRef.current && logText) {
@@ -135,7 +150,7 @@ export function Logs() {
     if (follow) {
       handleFollowChange(false);
     }
-    fetchLogs(lines);
+    fetchLogs(lines, priority);
   };
 
   return (
@@ -187,6 +202,23 @@ export function Logs() {
                     {LINES_OPTIONS.map((n) => (
                       <option key={n} value={n}>
                         {n}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="min-w-[140px]">
+                  <Label htmlFor="log-level" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Log level
+                  </Label>
+                  <Select
+                    id="log-level"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                    disabled={follow}
+                  >
+                    {LOG_LEVEL_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
                       </option>
                     ))}
                   </Select>
