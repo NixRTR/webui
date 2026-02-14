@@ -180,7 +180,7 @@ def update_dns_record_in_config(
     
     # Also write to Nix file for declarative config
     # Read current Nix file to get structure
-    nix_config = parse_dns_nix_file(network) or {'a_records': {}, 'cname_records': {}}
+    nix_config = parse_dns_nix_file(network) or {'a_records': {}, 'cname_records': {}, 'forward_unlisted': False}
     
     # Convert records back to Nix format
     a_records = {}
@@ -200,8 +200,9 @@ def update_dns_record_in_config(
                 'comment': record.get('comment', '')
             }
     
-    # Write to Nix file via socket service
+    # Write to Nix file via socket service (preserve forward_unlisted)
     nix_data = {
+        'forward_unlisted': nix_config.get('forward_unlisted', False),
         'a_records': a_records,
         'cname_records': cname_records
     }

@@ -57,8 +57,14 @@ def parse_dns_nix_file(network: str) -> Optional[Dict]:
         
         config = {
             'a_records': {},
-            'cname_records': {}
+            'cname_records': {},
+            'forward_unlisted': False  # Default to fully hosted (current behavior)
         }
+        
+        # Extract forward_unlisted
+        forward_unlisted_match = re.search(r'forward_unlisted\s*=\s*(true|false)\s*;', content)
+        if forward_unlisted_match:
+            config['forward_unlisted'] = forward_unlisted_match.group(1) == 'true'
         
         # Extract a_records
         a_records_match = re.search(r'a_records\s*=\s*\{', content)
@@ -78,7 +84,7 @@ def parse_dns_nix_file(network: str) -> Optional[Dict]:
             if cname_content:
                 config['cname_records'] = _parse_cname_records(cname_content)
         
-        logger.debug(f"Parsed DNS config for {network}: {len(config['a_records'])} A, {len(config['cname_records'])} CNAME")
+        logger.debug(f"Parsed DNS config for {network}: {len(config['a_records'])} A, {len(config['cname_records'])} CNAME, forward_unlisted={config['forward_unlisted']}")
         return config
         
     except Exception as e:

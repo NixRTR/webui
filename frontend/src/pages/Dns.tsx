@@ -3,13 +3,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, TextInput, Label, Select, Badge, Alert, Modal, Table } from 'flowbite-react';
+import { Card, Button, TextInput, Label, Select, Badge, Alert, Modal, Table, ToggleSwitch } from 'flowbite-react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
-import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh } from 'react-icons/hi';
-import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry } from '../types/dns';
+import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh, HiCog } from 'react-icons/hi';
+import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry, DnsNetworkSettings } from '../types/dns';
 import type { DhcpNetwork } from '../types/dhcp';
 import { HostnameEditModal } from '../components/HostnameEditModal';
 
@@ -63,6 +63,12 @@ export function Dns() {
   const [hostnameModalEntry, setHostnameModalEntry] = useState<DynamicDnsEntry | null>(null);
   const [hostnameModalNetwork, setHostnameModalNetwork] = useState<'homelab' | 'lan' | null>(null);
 
+  // DNS network settings (domain hosting mode)
+  const [homelabDnsSettings, setHomelabDnsSettings] = useState<DnsNetworkSettings | null>(null);
+  const [lanDnsSettings, setLanDnsSettings] = useState<DnsNetworkSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+
   const { connectionStatus } = useMetrics(token);
 
   useEffect(() => {
@@ -73,6 +79,7 @@ export function Dns() {
     fetchZones();
     fetchServiceStatuses();
     fetchDynamicDnsData();
+    fetchDnsNetworkSettings();
   }, [token, navigate]);
 
   const fetchDynamicDnsData = async () => {
@@ -121,6 +128,43 @@ export function Dns() {
       });
     } catch (err: any) {
       console.error('Failed to fetch DNS service statuses:', err);
+    }
+  };
+
+  const fetchDnsNetworkSettings = async () => {
+    try {
+      const [homelabSettings, lanSettings] = await Promise.all([
+        apiClient.getDnsNetworkSettings('homelab'),
+        apiClient.getDnsNetworkSettings('lan'),
+      ]);
+      setHomelabDnsSettings(homelabSettings);
+      setLanDnsSettings(lanSettings);
+    } catch (err: any) {
+      console.error('Failed to fetch DNS network settings:', err);
+    }
+  };
+
+  const handleDnsSettingsChange = async (network: 'homelab' | 'lan', forwardUnlisted: boolean) => {
+    setSavingSettings(true);
+    setSettingsSuccess(null);
+    try {
+      const response = await apiClient.updateDnsNetworkSettings(network, { forward_unlisted: forwardUnlisted });
+      
+      // Update local state
+      if (network === 'homelab') {
+        setHomelabDnsSettings({ forward_unlisted: forwardUnlisted });
+      } else {
+        setLanDnsSettings({ forward_unlisted: forwardUnlisted });
+      }
+      
+      setSettingsSuccess(response.message);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setSettingsSuccess(null), 5000);
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err.message || 'Failed to update DNS settings');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -450,6 +494,41 @@ export function Dns() {
                   New Zone
                 </Button>
               </div>
+
+              {/* DNS Network Settings */}
+              {homelabDnsSettings && (
+                <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-start gap-3">
+                    <HiCog className="w-5 h-5 text-gray-500 dark:text-gray-400 mt-1 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Domain Hosting Mode</h3>
+                      <div className="flex items-center gap-3 mb-2">
+                        <ToggleSwitch
+                          checked={homelabDnsSettings.forward_unlisted}
+                          onChange={(checked) => handleDnsSettingsChange('homelab', checked)}
+                          disabled={savingSettings}
+                          label=""
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {homelabDnsSettings.forward_unlisted ? 'Partially Hosted' : 'Fully Hosted'}
+                          </span>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {homelabDnsSettings.forward_unlisted 
+                              ? 'Serve configured records locally; look up unlisted names via upstream DNS'
+                              : 'Only serve configured records; unlisted names get no answer (NXDOMAIN)'}
+                          </p>
+                        </div>
+                      </div>
+                      {settingsSuccess && (
+                        <Alert color="info" className="mt-2" icon={HiInformationCircle}>
+                          <span className="text-xs">{settingsSuccess}</span>
+                        </Alert>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {(() => {
                 const homelabZones = zones.filter(z => z.network === 'homelab');
@@ -741,6 +820,41 @@ export function Dns() {
                   New Zone
                 </Button>
               </div>
+
+              {/* DNS Network Settings */}
+              {lanDnsSettings && (
+                <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-start gap-3">
+                    <HiCog className="w-5 h-5 text-gray-500 dark:text-gray-400 mt-1 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Domain Hosting Mode</h3>
+                      <div className="flex items-center gap-3 mb-2">
+                        <ToggleSwitch
+                          checked={lanDnsSettings.forward_unlisted}
+                          onChange={(checked) => handleDnsSettingsChange('lan', checked)}
+                          disabled={savingSettings}
+                          label=""
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {lanDnsSettings.forward_unlisted ? 'Partially Hosted' : 'Fully Hosted'}
+                          </span>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {lanDnsSettings.forward_unlisted 
+                              ? 'Serve configured records locally; look up unlisted names via upstream DNS'
+                              : 'Only serve configured records; unlisted names get no answer (NXDOMAIN)'}
+                          </p>
+                        </div>
+                      </div>
+                      {settingsSuccess && (
+                        <Alert color="info" className="mt-2" icon={HiInformationCircle}>
+                          <span className="text-xs">{settingsSuccess}</span>
+                        </Alert>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {(() => {
                 const lanZones = zones.filter(z => z.network === 'lan');

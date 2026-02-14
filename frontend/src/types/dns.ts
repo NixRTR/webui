@@ -73,3 +73,8 @@ export interface DynamicDnsEntry {
   mac_address: string;
   network: 'homelab' | 'lan';
 }
+
+/** DNS network settings for domain hosting mode */
+export interface DnsNetworkSettings {
+  forward_unlisted: boolean;
+}

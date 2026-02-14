@@ -15,6 +15,7 @@ from ..models import (
     DnsZone, DnsZoneCreate, DnsZoneUpdate,
     DnsRecord, DnsRecordCreate, DnsRecordUpdate,
     DynamicDnsEntry,
+    DnsNetworkSettings,
 )
 from ..api.auth import get_current_user
 from ..collectors.services import get_service_status
@@ -28,6 +29,9 @@ from ..utils.config_reader import (
 )
 from ..utils.config_manager import update_dns_record_in_config
 from ..utils.dnsmasq_parser import parse_dnsmasq_config_file
+from ..utils.dns import parse_dns_nix_file
+from ..utils.config_writer import write_dns_nix_config
+from ..utils.nix_writer import format_nix_dict
 from ..utils.redis_client import get_json, set_json
 import json
 from datetime import datetime
@@ -1160,5 +1164,88 @@ async def import_dns_from_config(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to regenerate DNS config: {str(e)}"
+        )
+
+
+@router.get("/networks/{network}/settings")
+async def get_dns_network_settings(
+    network: str,
+    username: str = Depends(get_current_user)
+) -> DnsNetworkSettings:
+    """Get DNS network settings (domain hosting mode)
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        
+    Returns:
+        DNS network settings including forward_unlisted option
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    try:
+        # Parse the DNS Nix file to get current settings
+        nix_config = parse_dns_nix_file(network)
+        if not nix_config:
+            # If file doesn't exist or can't be parsed, return defaults
+            return DnsNetworkSettings(forward_unlisted=False)
+        
+        return DnsNetworkSettings(
+            forward_unlisted=nix_config.get('forward_unlisted', False)
+        )
+    except Exception as e:
+        logger.error(f"Failed to get DNS network settings for {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get DNS network settings: {str(e)}"
+        )
+
+
+@router.put("/networks/{network}/settings")
+async def update_dns_network_settings(
+    network: str,
+    settings: DnsNetworkSettings,
+    username: str = Depends(get_current_user)
+) -> dict:
+    """Update DNS network settings (domain hosting mode)
+    
+    Args:
+        network: Network name ("homelab" or "lan")
+        settings: DNS network settings to update
+        
+    Returns:
+        Success message and updated settings
+    """
+    if network not in ['homelab', 'lan']:
+        raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
+    
+    try:
+        # Read current Nix config
+        nix_config = parse_dns_nix_file(network) or {
+            'a_records': {},
+            'cname_records': {},
+            'forward_unlisted': False
+        }
+        
+        # Update forward_unlisted setting
+        nix_config['forward_unlisted'] = settings.forward_unlisted
+        
+        # Write back to Nix file
+        nix_formatted = format_nix_dict(nix_config, indent=0)
+        write_dns_nix_config(network, nix_formatted)
+        
+        logger.info(f"Updated DNS network settings for {network}: forward_unlisted={settings.forward_unlisted}")
+        
+        return {
+            "message": f"DNS network settings updated for {network}. A NixOS rebuild is required for this change to take effect.",
+            "network": network,
+            "settings": settings.dict(),
+            "rebuild_required": True
+        }
+    except Exception as e:
+        logger.error(f"Failed to update DNS network settings for {network}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update DNS network settings: {str(e)}"
         )
 

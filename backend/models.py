@@ -621,6 +621,14 @@ class DynamicDnsEntriesResponse(BaseModel):
     entries: List[DynamicDnsEntry] = Field(default_factory=list, description="List of dynamic DNS entries")
 
 
+class DnsNetworkSettings(BaseModel):
+    """DNS network settings for domain hosting mode"""
+    forward_unlisted: bool = Field(
+        default=False,
+        description="Domain hosting mode: false = fully hosted (local only), true = partially hosted (forward unlisted to upstream)"
+    )
+
+
 class DhcpNetworkBase(BaseModel):
     """Base DHCP network model"""
     network: str = Field(..., pattern="^(homelab|lan)$", description="Network: homelab or lan")

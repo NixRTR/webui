@@ -23,6 +23,7 @@ import type {
   DnsRecordCreate,
   DnsRecordUpdate,
   DynamicDnsEntry,
+  DnsNetworkSettings,
 } from '../types/dns';
 import type {
   DhcpNetwork,
@@ -594,6 +595,16 @@ class APIClient {
 
   async controlDnsService(network: 'homelab' | 'lan', action: 'start' | 'stop' | 'restart' | 'reload'): Promise<{ message: string }> {
     const response = await this.client.post(`/api/dns/service/${network}/${action}`);
+    return response.data;
+  }
+
+  async getDnsNetworkSettings(network: 'homelab' | 'lan'): Promise<DnsNetworkSettings> {
+    const response = await this.client.get<DnsNetworkSettings>(`/api/dns/networks/${network}/settings`);
+    return response.data;
+  }
+
+  async updateDnsNetworkSettings(network: 'homelab' | 'lan', settings: DnsNetworkSettings): Promise<{ message: string; network: string; settings: DnsNetworkSettings; rebuild_required: boolean }> {
+    const response = await this.client.put(`/api/dns/networks/${network}/settings`, settings);
     return response.data;
   }
 
