@@ -32,7 +32,7 @@ from ..utils.dnsmasq_parser import parse_dnsmasq_config_file
 from ..utils.dns import parse_dns_nix_file
 from ..utils.config_writer import write_dns_nix_config
 from ..utils.nix_writer import format_nix_dict
-from ..utils.redis_client import get_json, set_json
+from ..utils.redis_client import get_json, set_json, delete as redis_delete
 import json
 from datetime import datetime
 import os
@@ -518,6 +518,10 @@ async def update_zone(
         # Commit database changes BEFORE regenerating config
         # (config generation queries the database for hosting modes)
         await db.commit()
+        
+        # Invalidate zones cache
+        await redis_delete(f"api:dns:zones:{network}")
+        await redis_delete("api:dns:zones:all")
         
         # Regenerate dnsmasq config with new hosting_mode and restart service
         await _write_dns_config_and_reload(
