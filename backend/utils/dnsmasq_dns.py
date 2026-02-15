@@ -9,7 +9,7 @@ from ..utils.config_reader import get_dns_zones_from_config, get_dns_records_fro
 logger = logging.getLogger(__name__)
 
 
-def generate_dnsmasq_dns_config(network: str) -> str:
+async def generate_dnsmasq_dns_config(network: str, db_session=None) -> str:
     """Generate dnsmasq DNS configuration from config files
     
     Reads from router-config.nix and webui-dns.conf, merging them.
@@ -17,6 +17,7 @@ def generate_dnsmasq_dns_config(network: str) -> str:
     
     Args:
         network: Network name ("homelab" or "lan")
+        db_session: Optional database session for querying zone hosting modes
         
     Returns:
         dnsmasq configuration as string
@@ -42,16 +43,23 @@ def generate_dnsmasq_dns_config(network: str) -> str:
     host_records = []  # List of {hostname, ip, comment}
     authoritative_domains = set()  # Domains that should have local= directive (fully hosted)
     
-    # Query database for zone hosting modes
-    from ..database import get_sync_db, DnsZoneDB
+    # Query database for zone hosting modes if session provided
     zone_hosting_modes = {}  # zone_name -> hosting_mode
-    try:
-        db = next(get_sync_db())
-        db_zones = db.query(DnsZoneDB).filter(DnsZoneDB.network == network, DnsZoneDB.enabled == True).all()
-        for db_zone in db_zones:
-            zone_hosting_modes[db_zone.name] = db_zone.hosting_mode
-    except Exception as e:
-        logger.warning(f"Could not query database for zone hosting modes: {e}")
+    if db_session:
+        try:
+            from ..database import DnsZoneDB
+            from sqlalchemy import select
+            result = await db_session.execute(
+                select(DnsZoneDB).where(
+                    DnsZoneDB.network == network,
+                    DnsZoneDB.enabled == True
+                )
+            )
+            db_zones = result.scalars().all()
+            for db_zone in db_zones:
+                zone_hosting_modes[db_zone.name] = db_zone.hosting_mode
+        except Exception as e:
+            logger.warning(f"Could not query database for zone hosting modes: {e}")
     
     # Process zones
     for zone in zones:

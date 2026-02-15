@@ -139,7 +139,7 @@ async def _write_dns_config_and_reload(
         await _save_dns_config_history(db, network, change_type, changed_by, change_details)
         
         # Generate config from files (router-config.nix + webui-dns.conf)
-        config_content = generate_dnsmasq_dns_config(network)
+        config_content = await generate_dnsmasq_dns_config(network, db)
         
         # Write config via helper service
         write_dns_config(network, config_content)
@@ -1099,7 +1099,7 @@ async def sync_dns_config(
     
     try:
         # Generate config from current files (router-config.nix + webui-dns.conf)
-        config_content = generate_dnsmasq_dns_config(network)
+        config_content = await generate_dnsmasq_dns_config(network, db)
         write_dns_config(network, config_content)
         
         # Restart dnsmasq service (dnsmasq doesn't support reload)
@@ -1145,7 +1145,7 @@ async def import_dns_from_config(
     
     try:
         # Simply regenerate and write config (same as sync-config)
-        config_content = generate_dnsmasq_dns_config(network)
+        config_content = await generate_dnsmasq_dns_config(network, db)
         write_dns_config(network, config_content)
         
         # Restart dnsmasq service (dnsmasq doesn't support reload)
