@@ -542,6 +542,7 @@ class DnsZoneBase(BaseModel):
     forward_to: Optional[str] = Field(None, description="Optional: Forward queries to this DNS server")
     delegate_to: Optional[str] = Field(None, description="Optional: Delegate zone to this DNS server")
     enabled: bool = True
+    hosting_mode: str = Field("fully_hosted", pattern="^(fully_hosted|partially_hosted)$", description="Domain hosting mode")
 
 
 class DnsZoneCreate(DnsZoneBase):
@@ -557,6 +558,7 @@ class DnsZoneUpdate(BaseModel):
     forward_to: Optional[str] = None
     delegate_to: Optional[str] = None
     enabled: Optional[bool] = None
+    hosting_mode: Optional[str] = Field(None, pattern="^(fully_hosted|partially_hosted)$")
 
 
 class DnsZone(DnsZoneBase):

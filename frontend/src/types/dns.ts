@@ -10,6 +10,7 @@ export interface DnsZone {
   forward_to: string | null;
   delegate_to: string | null;
   enabled: boolean;
+  hosting_mode: 'fully_hosted' | 'partially_hosted';
   original_config_path: string | null;
   created_at: string;
   updated_at: string;
@@ -22,6 +23,7 @@ export interface DnsZoneCreate {
   forward_to?: string | null;
   delegate_to?: string | null;
   enabled?: boolean;
+  hosting_mode?: 'fully_hosted' | 'partially_hosted';
   original_config_path?: string | null;
 }
 
@@ -32,6 +34,7 @@ export interface DnsZoneUpdate {
   forward_to?: string | null;
   delegate_to?: string | null;
   enabled?: boolean;
+  hosting_mode?: 'fully_hosted' | 'partially_hosted';
 }
 
 export interface DnsRecord {

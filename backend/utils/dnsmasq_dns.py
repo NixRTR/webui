@@ -40,12 +40,28 @@ def generate_dnsmasq_dns_config(network: str) -> str:
     # Collect wildcards and host records
     wildcards = []  # List of {domain, ip, comment}
     host_records = []  # List of {hostname, ip, comment}
-    authoritative_domains = set()  # Domains that should have local= directive
+    authoritative_domains = set()  # Domains that should have local= directive (fully hosted)
+    
+    # Query database for zone hosting modes
+    from ..database import get_sync_db, DnsZoneDB
+    zone_hosting_modes = {}  # zone_name -> hosting_mode
+    try:
+        db = next(get_sync_db())
+        db_zones = db.query(DnsZoneDB).filter(DnsZoneDB.network == network, DnsZoneDB.enabled == True).all()
+        for db_zone in db_zones:
+            zone_hosting_modes[db_zone.name] = db_zone.hosting_mode
+    except Exception as e:
+        logger.warning(f"Could not query database for zone hosting modes: {e}")
     
     # Process zones
     for zone in zones:
-        if zone.get('authoritative'):
-            authoritative_domains.add(zone['name'])
+        zone_name = zone['name']
+        # Check hosting mode from database, default to fully_hosted
+        hosting_mode = zone_hosting_modes.get(zone_name, 'fully_hosted')
+        
+        # Only add local= directive for fully hosted zones
+        if zone.get('authoritative') and hosting_mode == 'fully_hosted':
+            authoritative_domains.add(zone_name)
     
     # Process records
     for record in records:

@@ -33,6 +33,7 @@ export function Dns() {
   const [zoneForwardTo, setZoneForwardTo] = useState('');
   const [zoneDelegateTo, setZoneDelegateTo] = useState('');
   const [zoneEnabled, setZoneEnabled] = useState(true);
+  const [zoneHostingMode, setZoneHostingMode] = useState<'fully_hosted' | 'partially_hosted'>('fully_hosted');
   const [saving, setSaving] = useState(false);
   const [zoneError, setZoneError] = useState<string | null>(null);
   
@@ -63,12 +64,6 @@ export function Dns() {
   const [hostnameModalEntry, setHostnameModalEntry] = useState<DynamicDnsEntry | null>(null);
   const [hostnameModalNetwork, setHostnameModalNetwork] = useState<'homelab' | 'lan' | null>(null);
 
-  // DNS network settings (domain hosting mode)
-  const [homelabDnsSettings, setHomelabDnsSettings] = useState<DnsNetworkSettings | null>(null);
-  const [lanDnsSettings, setLanDnsSettings] = useState<DnsNetworkSettings | null>(null);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
-
   const { connectionStatus } = useMetrics(token);
 
   useEffect(() => {
@@ -79,7 +74,6 @@ export function Dns() {
     fetchZones();
     fetchServiceStatuses();
     fetchDynamicDnsData();
-    fetchDnsNetworkSettings();
   }, [token, navigate]);
 
   const fetchDynamicDnsData = async () => {
@@ -131,43 +125,6 @@ export function Dns() {
     }
   };
 
-  const fetchDnsNetworkSettings = async () => {
-    try {
-      const [homelabSettings, lanSettings] = await Promise.all([
-        apiClient.getDnsNetworkSettings('homelab'),
-        apiClient.getDnsNetworkSettings('lan'),
-      ]);
-      setHomelabDnsSettings(homelabSettings);
-      setLanDnsSettings(lanSettings);
-    } catch (err: any) {
-      console.error('Failed to fetch DNS network settings:', err);
-    }
-  };
-
-  const handleDnsSettingsChange = async (network: 'homelab' | 'lan', forwardUnlisted: boolean) => {
-    setSavingSettings(true);
-    setSettingsSuccess(null);
-    try {
-      const response = await apiClient.updateDnsNetworkSettings(network, { forward_unlisted: forwardUnlisted });
-      
-      // Update local state
-      if (network === 'homelab') {
-        setHomelabDnsSettings({ forward_unlisted: forwardUnlisted });
-      } else {
-        setLanDnsSettings({ forward_unlisted: forwardUnlisted });
-      }
-      
-      setSettingsSuccess(response.message);
-      
-      // Clear success message after 5 seconds
-      setTimeout(() => setSettingsSuccess(null), 5000);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err.message || 'Failed to update DNS settings');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
   const handleServiceControl = async (network: 'homelab' | 'lan', action: 'start' | 'stop' | 'restart' | 'reload') => {
     const serviceKey = `${network}-${action}`;
     setControllingService(serviceKey);
@@ -216,6 +173,7 @@ export function Dns() {
       setZoneForwardTo(zone.forward_to || '');
       setZoneDelegateTo(zone.delegate_to || '');
       setZoneEnabled(zone.enabled);
+      setZoneHostingMode(zone.hosting_mode || 'fully_hosted');
     } else {
       setEditingZone(null);
       setZoneName('');
@@ -224,6 +182,7 @@ export function Dns() {
       setZoneForwardTo('');
       setZoneDelegateTo('');
       setZoneEnabled(true);
+      setZoneHostingMode('fully_hosted');
     }
     setZoneError(null);
     setZoneModalOpen(true);
@@ -254,6 +213,7 @@ export function Dns() {
           forward_to: zoneForwardTo.trim() || null,
           delegate_to: zoneDelegateTo.trim() || null,
           enabled: zoneEnabled,
+          hosting_mode: zoneHostingMode,
         };
         await apiClient.updateDnsZone(editingZone.name, editingZone.network, update);
       } else {
@@ -264,6 +224,7 @@ export function Dns() {
           forward_to: zoneForwardTo.trim() || null,
           delegate_to: zoneDelegateTo.trim() || null,
           enabled: zoneEnabled,
+          hosting_mode: zoneHostingMode,
         };
         await apiClient.createDnsZone(create);
       }
@@ -494,41 +455,6 @@ export function Dns() {
                   New Zone
                 </Button>
               </div>
-
-              {/* DNS Network Settings */}
-              {homelabDnsSettings && (
-                <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                  <div className="flex items-start gap-3">
-                    <HiCog className="w-5 h-5 text-gray-500 dark:text-gray-400 mt-1 flex-shrink-0" />
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Domain Hosting Mode</h3>
-                      <div className="flex items-center gap-3 mb-2">
-                        <ToggleSwitch
-                          checked={homelabDnsSettings.forward_unlisted}
-                          onChange={(checked) => handleDnsSettingsChange('homelab', checked)}
-                          disabled={savingSettings}
-                          label=""
-                        />
-                        <div>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {homelabDnsSettings.forward_unlisted ? 'Partially Hosted' : 'Fully Hosted'}
-                          </span>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {homelabDnsSettings.forward_unlisted 
-                              ? 'Serve configured records locally; look up unlisted names via upstream DNS'
-                              : 'Only serve configured records; unlisted names get no answer (NXDOMAIN)'}
-                          </p>
-                        </div>
-                      </div>
-                      {settingsSuccess && (
-                        <Alert color="info" className="mt-2" icon={HiInformationCircle}>
-                          <span className="text-xs">{settingsSuccess}</span>
-                        </Alert>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
               
               {(() => {
                 const homelabZones = zones.filter(z => z.network === 'homelab');
@@ -554,6 +480,11 @@ export function Dns() {
                           <Table.Row key={zone.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
                             <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                               {zone.name}
+                            </Table.Cell>
+                            <Table.Cell>
+                              <Badge color={zone.hosting_mode === 'partially_hosted' ? "purple" : "blue"} size="sm">
+                                {zone.hosting_mode === 'partially_hosted' ? 'Partial' : 'Full'}
+                              </Badge>
                             </Table.Cell>
                             <Table.Cell>
                               <Badge color={zone.authoritative ? "success" : "gray"}>
@@ -820,41 +751,6 @@ export function Dns() {
                   New Zone
                 </Button>
               </div>
-
-              {/* DNS Network Settings */}
-              {lanDnsSettings && (
-                <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                  <div className="flex items-start gap-3">
-                    <HiCog className="w-5 h-5 text-gray-500 dark:text-gray-400 mt-1 flex-shrink-0" />
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Domain Hosting Mode</h3>
-                      <div className="flex items-center gap-3 mb-2">
-                        <ToggleSwitch
-                          checked={lanDnsSettings.forward_unlisted}
-                          onChange={(checked) => handleDnsSettingsChange('lan', checked)}
-                          disabled={savingSettings}
-                          label=""
-                        />
-                        <div>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {lanDnsSettings.forward_unlisted ? 'Partially Hosted' : 'Fully Hosted'}
-                          </span>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {lanDnsSettings.forward_unlisted 
-                              ? 'Serve configured records locally; look up unlisted names via upstream DNS'
-                              : 'Only serve configured records; unlisted names get no answer (NXDOMAIN)'}
-                          </p>
-                        </div>
-                      </div>
-                      {settingsSuccess && (
-                        <Alert color="info" className="mt-2" icon={HiInformationCircle}>
-                          <span className="text-xs">{settingsSuccess}</span>
-                        </Alert>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
               
               {(() => {
                 const lanZones = zones.filter(z => z.network === 'lan');
@@ -869,6 +765,7 @@ export function Dns() {
                       <Table>
                         <Table.Head>
                           <Table.HeadCell>Name</Table.HeadCell>
+                          <Table.HeadCell>Hosting Mode</Table.HeadCell>
                           <Table.HeadCell>Authoritative</Table.HeadCell>
                           <Table.HeadCell>Forward To</Table.HeadCell>
                           <Table.HeadCell>Delegate To</Table.HeadCell>
@@ -880,6 +777,11 @@ export function Dns() {
                             <Table.Row key={zone.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
                               <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                                 {zone.name}
+                              </Table.Cell>
+                              <Table.Cell>
+                                <Badge color={zone.hosting_mode === 'partially_hosted' ? "purple" : "blue"} size="sm">
+                                  {zone.hosting_mode === 'partially_hosted' ? 'Partial' : 'Full'}
+                                </Badge>
                               </Table.Cell>
                               <Table.Cell>
                                 <Badge color={zone.authoritative ? "success" : "gray"}>
@@ -1140,6 +1042,23 @@ export function Dns() {
                       className="w-4 h-4"
                     />
                     <Label htmlFor="zoneAuthoritative" value="Authoritative (serve locally)" />
+                  </div>
+                  <div>
+                    <Label htmlFor="zoneHostingMode" value="Domain Hosting Mode *" />
+                    <Select
+                      id="zoneHostingMode"
+                      value={zoneHostingMode}
+                      onChange={(e) => setZoneHostingMode(e.target.value as 'fully_hosted' | 'partially_hosted')}
+                      className="mt-1"
+                    >
+                      <option value="fully_hosted">Fully Hosted - Only serve configured records (unlisted get NXDOMAIN)</option>
+                      <option value="partially_hosted">Partially Hosted - Serve configured records; forward unlisted to upstream</option>
+                    </Select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {zoneHostingMode === 'fully_hosted' 
+                        ? 'This domain is local-only. Queries for unlisted names will not be forwarded.'
+                        : 'Only configured records are served locally. All other names are looked up via upstream DNS.'}
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="zoneForwardTo" value="Forward To (optional)" />

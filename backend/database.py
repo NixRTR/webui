@@ -420,6 +420,7 @@ class DnsZoneDB(Base):
     forward_to = Column(Text)  # Optional: Forward queries to this DNS server
     delegate_to = Column(Text)  # Optional: Delegate zone to this DNS server (NS records)
     enabled = Column(Boolean, default=True, index=True)
+    hosting_mode = Column(String(50), nullable=False, default='fully_hosted', index=True)  # 'fully_hosted' or 'partially_hosted'
     original_config_path = Column(Text)  # For migration tracking: "homelab.dns" or "lan.dns"
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
