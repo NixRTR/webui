@@ -335,11 +335,19 @@ async def get_zones(
     if network and network not in ['homelab', 'lan']:
         raise HTTPException(status_code=400, detail="Network must be 'homelab' or 'lan'")
     
+    # Get hosting modes from database
+    from sqlalchemy import select
+    result = await db.execute(select(DnsZoneDB))
+    db_zones = result.scalars().all()
+    hosting_modes = {(z.network, z.name): z.hosting_mode for z in db_zones}
+    
     for net in networks:
         zones = get_dns_zones_from_config(net)
         for zone_dict in zones:
             # Convert to DnsZone model (assigning temporary IDs for API compatibility)
             zone_dict['id'] = hash(f"{net}:{zone_dict['name']}") % (2**31)  # Temporary ID
+            # Merge hosting_mode from database
+            zone_dict['hosting_mode'] = hosting_modes.get((net, zone_dict['name']), 'fully_hosted')
             all_zones.append(DnsZone.model_validate(zone_dict))
     
     out = sorted(all_zones, key=lambda z: (z.network, z.name))
@@ -482,20 +490,59 @@ async def update_zone(
             detail="Zone network cannot be changed - zones are auto-discovered from records"
         )
     
-    # Update metadata (for future: could store in metadata file)
-    # For now, just regenerate config to ensure it's up to date
-    await _write_dns_config_and_reload(
-        db, network, username, "update",
-        {"zone_name": zone_name}
-    )
+    # Update hosting_mode in database if provided
+    from sqlalchemy import select
+    
+    if zone_update.hosting_mode is not None:
+        result = await db.execute(
+            select(DnsZoneDB).where(
+                DnsZoneDB.network == network,
+                DnsZoneDB.name == zone_name
+            )
+        )
+        db_zone = result.scalar_one_or_none()
+        
+        if db_zone:
+            # Update existing zone
+            db_zone.hosting_mode = zone_update.hosting_mode
+        else:
+            # Create new zone entry
+            db_zone = DnsZoneDB(
+                network=network,
+                name=zone_name,
+                enabled=True,
+                hosting_mode=zone_update.hosting_mode
+            )
+            db.add(db_zone)
+        
+        # Commit database changes BEFORE regenerating config
+        # (config generation queries the database for hosting modes)
+        await db.commit()
+        
+        # Regenerate dnsmasq config with new hosting_mode and restart service
+        await _write_dns_config_and_reload(
+            db, network, username, "update",
+            {"zone_name": zone_name, "hosting_mode": zone_update.hosting_mode}
+        )
     
     # Return updated zone (read back from config)
     zones = get_dns_zones_from_config(network)
     updated_zone = next((z for z in zones if z['name'] == zone_name), None)
     if not updated_zone:
-        raise HTTPException(status_code=500, detail="Zone not found after update")
+        raise HTTPException(status_code=404, detail=f"Zone {zone_name} not found after update")
     
     updated_zone['id'] = hash(f"{network}:{zone_name}") % (2**31)
+    
+    # Get hosting_mode from database
+    result = await db.execute(
+        select(DnsZoneDB).where(
+            DnsZoneDB.network == network,
+            DnsZoneDB.name == zone_name
+        )
+    )
+    db_zone = result.scalar_one_or_none()
+    updated_zone['hosting_mode'] = db_zone.hosting_mode if db_zone else 'fully_hosted'
+    
     return DnsZone.model_validate(updated_zone)
 
 
