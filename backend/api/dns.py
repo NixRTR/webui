@@ -10,7 +10,7 @@ import os
 import shutil
 import logging
 
-from ..database import get_db, DnsConfigHistoryDB
+from ..database import get_db, DnsConfigHistoryDB, DnsZoneDB
 from ..models import (
     DnsZone, DnsZoneCreate, DnsZoneUpdate,
     DnsRecord, DnsRecordCreate, DnsRecordUpdate,
