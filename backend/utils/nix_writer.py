@@ -63,6 +63,10 @@ def format_nix_dict(data: Dict[str, Any], indent: int = 0) -> str:
     lines = ["{"]
     items = sorted(data.items())
     for i, (key, value) in enumerate(items):
+        # Skip None values entirely (don't write them to Nix)
+        if value is None:
+            continue
+            
         # Format the key (quote if needed)
         if not key.replace('_', '').replace('-', '').isalnum():
             nix_key = f'"{escape_nix_string(key)}"'
@@ -78,8 +82,6 @@ def format_nix_dict(data: Dict[str, Any], indent: int = 0) -> str:
             value_str = format_nix_string(value)
         elif isinstance(value, (int, float, bool)):
             value_str = json.dumps(value)
-        elif value is None:
-            value_str = "null"
         else:
             value_str = json.dumps(value)
         

@@ -1236,11 +1236,22 @@ async def update_dns_network_settings(
         
         logger.info(f"Updated DNS network settings for {network}: forward_unlisted={settings.forward_unlisted}")
         
+        # Restart dnsmasq service to apply the change
+        # The preStart script will regenerate dnsmasq.conf with the new setting
+        service_name = f"{NETWORK_SERVICE_MAP[network]}.service"
+        try:
+            _control_service_via_systemctl(service_name, "restart")
+            logger.info(f"Restarted {service_name} to apply DNS network settings")
+            message = f"DNS network settings updated and applied for {network}."
+        except Exception as restart_error:
+            logger.warning(f"Failed to restart {service_name}: {restart_error}")
+            message = f"DNS network settings updated for {network}, but service restart failed. Manual restart may be required."
+        
         return {
-            "message": f"DNS network settings updated for {network}. A NixOS rebuild is required for this change to take effect.",
+            "message": message,
             "network": network,
             "settings": settings.dict(),
-            "rebuild_required": True
+            "service_restarted": True
         }
     except Exception as e:
         logger.error(f"Failed to update DNS network settings for {network}: {e}", exc_info=True)
