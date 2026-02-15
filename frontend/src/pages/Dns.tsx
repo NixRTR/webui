@@ -3,13 +3,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, TextInput, Label, Select, Badge, Alert, Modal, Table, ToggleSwitch } from 'flowbite-react';
+import { Card, Button, TextInput, Label, Select, Badge, Alert, Modal, Table } from 'flowbite-react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { useMetrics } from '../hooks/useMetrics';
 import { apiClient } from '../api/client';
-import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh, HiCog } from 'react-icons/hi';
-import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry, DnsNetworkSettings } from '../types/dns';
+import { HiGlobe, HiPencil, HiTrash, HiPlus, HiInformationCircle, HiPlay, HiStop, HiRefresh } from 'react-icons/hi';
+import type { DnsZone, DnsZoneCreate, DnsZoneUpdate, DnsRecord, DnsRecordCreate, DnsRecordUpdate, DynamicDnsEntry } from '../types/dns';
 import type { DhcpNetwork } from '../types/dhcp';
 import { HostnameEditModal } from '../components/HostnameEditModal';
 
