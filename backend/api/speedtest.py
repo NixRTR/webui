@@ -15,6 +15,7 @@ import os
 from ..database import get_db, SpeedtestResultDB
 from ..config import settings
 from ..utils.redis_client import get_json, set_json
+from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/speedtest", tags=["speedtest"])
 
@@ -72,6 +73,7 @@ _speedtest_status = {
 @router.post("/results", response_model=SpeedtestResult)
 async def create_speedtest_result(
     result: SpeedtestResultCreate,
+    _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Store a speedtest result in the database"""
@@ -95,6 +97,7 @@ async def get_speedtest_history(
     end_time: Optional[datetime] = Query(None, description="End time for filtering results"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=200, description="Results per page"),
+    _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get speedtest history with pagination"""
@@ -151,6 +154,7 @@ async def get_speedtest_history(
 @router.get("/chart-data")
 async def get_speedtest_chart_data(
     hours: int = Query(24, ge=1, le=8760, description="Number of hours to retrieve data for"),
+    _: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get speedtest data for charting (last N hours)"""
@@ -186,7 +190,7 @@ async def get_speedtest_chart_data(
 
 
 @router.get("/status", response_model=SpeedtestStatus)
-async def get_speedtest_status():
+async def get_speedtest_status(_: str = Depends(get_current_user)):
     """Get current speedtest execution status"""
     return SpeedtestStatus(
         is_running=_speedtest_status["is_running"],
@@ -487,7 +491,10 @@ async def _run_speedtest_async(db: AsyncSession):
 
 
 @router.post("/trigger")
-async def trigger_speedtest(db: AsyncSession = Depends(get_db)):
+async def trigger_speedtest(
+    _: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Trigger a speedtest run"""
     if _speedtest_status["is_running"]:
         raise HTTPException(status_code=409, detail="Speedtest is already running")

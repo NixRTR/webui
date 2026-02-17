@@ -329,12 +329,25 @@ npm run build
 ## Security
 
 - PAM-based authentication
-- JWT tokens with configurable expiration
+- JWT tokens with configurable expiration (secret from `JWT_SECRET` or `JWT_SECRET_FILE` in production)
+- Login rate limiting (5 failed attempts per IP, 15-minute window, Redis-backed)
+- `DATABASE_URL` required in production (env or config.env)
 - HTTPS support (via reverse proxy)
 - Systemd security hardening (NoNewPrivileges, ProtectSystem, etc.)
 - CORS configuration for development
 - SQL injection prevention (SQLAlchemy ORM)
 - XSS protection (React escaping)
+
+### Optional: JWT in httpOnly cookies (instead of localStorage)
+
+The app currently stores the JWT in `localStorage`, so any XSS could theoretically steal it. To harden further:
+
+1. **Backend:** On `POST /api/auth/login`, after validating credentials, set an httpOnly, Secure, SameSite cookie (e.g. `access_token=<jwt>`) instead of (or in addition to) returning the token in the JSON body. Use a short-lived cookie or the same expiry as the JWT.
+2. **Backend:** For API and WebSocket auth, accept the token from the `Cookie` header (e.g. `access_token=...`) as well as from `Authorization: Bearer <token>`. Validate the cookie on each request.
+3. **Frontend:** Stop reading/writing `access_token` from/to `localStorage`. Rely on the cookie being sent automatically with same-origin requests (`credentials: 'include'` if using fetch; axios with `withCredentials: true`). For WebSocket, either pass the token in a query param (still needed for WS) or use a cookie if your WS server can read it.
+4. **Logout:** Implement logout by clearing the cookie (e.g. `Set-Cookie: access_token=; Max-Age=0` on `POST /api/auth/logout`).
+
+This requires coordinated changes in `webui/backend/auth.py`, `webui/backend/api/auth.py`, `webui/frontend/src/api/client.ts`, and any frontend code that checks `localStorage.getItem('access_token')`.
 
 ## Contributing
 

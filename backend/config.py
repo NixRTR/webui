@@ -1,5 +1,10 @@
 """
 Application configuration using Pydantic Settings
+
+Secrets and URLs must be provided via environment or config file in production:
+- DATABASE_URL: PostgreSQL connection string (e.g. from config.env or env)
+- JWT_SECRET_FILE: Path to file containing JWT secret, or
+- JWT_SECRET: JWT secret value directly (env only)
 """
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -7,7 +12,7 @@ import os
 
 
 class Settings(BaseSettings):
-    """Application settings"""
+    """Application settings (env vars override defaults; see Config.env_file)."""
     
     # Application
     app_name: str = "Router WebUI"
@@ -17,12 +22,12 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
     
-    # Database
-    database_url: str = "postgresql+asyncpg://router_webui:password@localhost/router_webui"
+    # Database - set DATABASE_URL in production (env or config.env)
+    database_url: str = ""
     
-    # JWT Authentication
-    jwt_secret_key: str = "change-this-in-production"
-    jwt_secret_file: Optional[str] = None  # Path to JWT secret file
+    # JWT Authentication - set JWT_SECRET_FILE or JWT_SECRET in production (env or config.env)
+    jwt_secret_key: str = ""
+    jwt_secret_file: Optional[str] = None  # Path to JWT secret file (JWT_SECRET_FILE)
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60 * 24  # 24 hours
     
@@ -99,24 +104,36 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 
-# Helper function to load JWT secret from file
+# Helper function to load JWT secret from env or file (never use hardcoded default in production)
 def load_jwt_secret(settings_obj: Settings) -> str:
-    """Load JWT secret from file if specified, otherwise use default"""
-    if settings_obj.jwt_secret_file and os.path.exists(settings_obj.jwt_secret_file):
+    """Load JWT secret from JWT_SECRET env, then JWT_SECRET_FILE, then default only in debug."""
+    # 1. Direct secret from environment
+    secret_env = os.environ.get("JWT_SECRET", "").strip()
+    if secret_env:
+        return secret_env
+    # 2. Secret file (path from env JWT_SECRET_FILE or settings)
+    path = settings_obj.jwt_secret_file or os.environ.get("JWT_SECRET_FILE", "").strip()
+    if path and os.path.exists(path):
         try:
-            with open(settings_obj.jwt_secret_file, 'r') as f:
+            with open(path, "r") as f:
                 secret = f.read().strip()
                 if secret:
                     return secret
         except Exception as e:
-            print(f"Warning: Could not read JWT secret from {settings_obj.jwt_secret_file}: {e}")
-    
-    return settings_obj.jwt_secret_key
+            print(f"Warning: Could not read JWT secret from {path}: {e}")
+    # 3. In debug only, allow default placeholder; otherwise require env/file
+    if settings_obj.debug and settings_obj.jwt_secret_key:
+        return settings_obj.jwt_secret_key
+    if not settings_obj.debug:
+        raise RuntimeError(
+            "JWT_SECRET or JWT_SECRET_FILE must be set in production (e.g. env or config.env)"
+        )
+    return settings_obj.jwt_secret_key or "change-this-in-production"
 
 
 # Global settings instance
 settings = Settings()
 
-# Load JWT secret from file if available
+# Resolve JWT secret from env/file
 settings.jwt_secret_key = load_jwt_secret(settings)
 

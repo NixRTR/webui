@@ -10,6 +10,15 @@ from typing import AsyncGenerator
 
 from .config import settings
 
+# Require DATABASE_URL in production (set via env or config.env)
+if not (settings.database_url and settings.database_url.strip()):
+    if not settings.debug:
+        raise RuntimeError(
+            "DATABASE_URL must be set in production (e.g. in config.env or environment)"
+        )
+    # Dev fallback only when debug is True
+    settings.database_url = settings.database_url or "postgresql+asyncpg://router_webui:password@localhost/router_webui"
+
 # Create async engine
 # Reduced pool size since we're using bulk operations and Redis buffering
 # Note: echo=False to prevent SQLAlchemy from logging all SQL statements
