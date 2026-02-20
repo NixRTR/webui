@@ -47,6 +47,7 @@ interface ChartDataPoint {
 }
 
 const TIME_RANGES = [
+  { value: 0, label: 'All time' },
   { value: 1, label: '1 hour' },
   { value: 3, label: '3 hours' },
   { value: 6, label: '6 hours' },
@@ -70,8 +71,8 @@ export function Speedtest() {
   
   const { connectionStatus } = useMetrics(token);
   
-  // Time range for chart
-  const [timeRangeHours, setTimeRangeHours] = useState(24);
+  // Time range for chart and table (0 = all time)
+  const [timeRangeHours, setTimeRangeHours] = useState(168);
   
   // Chart data
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -97,9 +98,9 @@ export function Speedtest() {
   useEffect(() => {
     const fetchChartData = async () => {
       if (!token) return;
-      
+      const hoursParam = timeRangeHours === 0 ? 8760 : timeRangeHours;
       try {
-        const response = await fetch(`/api/speedtest/chart-data?hours=${timeRangeHours}`, {
+        const response = await fetch(`/api/speedtest/chart-data?hours=${hoursParam}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -116,13 +117,16 @@ export function Speedtest() {
     
     const fetchTableData = async () => {
       if (!token) return;
-      
       try {
-        const endTime = new Date();
-        const startTime = new Date(endTime.getTime() - timeRangeHours * 60 * 60 * 1000);
-        
+        const params = new URLSearchParams({ page: String(currentPage), page_size: String(pageSize) });
+        if (timeRangeHours > 0) {
+          const endTime = new Date();
+          const startTime = new Date(endTime.getTime() - timeRangeHours * 60 * 60 * 1000);
+          params.set('start_time', startTime.toISOString());
+          params.set('end_time', endTime.toISOString());
+        }
         const response = await fetch(
-          `/api/speedtest/history?start_time=${startTime.toISOString()}&end_time=${endTime.toISOString()}&page=${currentPage}&page_size=${pageSize}`,
+          `/api/speedtest/history?${params.toString()}`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -200,8 +204,8 @@ export function Speedtest() {
               // Refresh chart, table, and last result
               const refreshAllData = async () => {
                 try {
-                  // Fetch chart data
-                  const chartResponse = await fetch(`/api/speedtest/chart-data?hours=${timeRangeHours}`, {
+                  const chartHours = timeRangeHours === 0 ? 8760 : timeRangeHours;
+                  const chartResponse = await fetch(`/api/speedtest/chart-data?hours=${chartHours}`, {
                     headers: { 'Authorization': `Bearer ${token}` },
                   });
                   if (chartResponse.ok) {
@@ -209,11 +213,15 @@ export function Speedtest() {
                     setChartData(chartData.data || []);
                   }
                   
-                  // Fetch table data
-                  const endTime = new Date();
-                  const startTime = new Date(endTime.getTime() - timeRangeHours * 60 * 60 * 1000);
+                  const tableParams = new URLSearchParams({ page: String(currentPage), page_size: String(pageSize) });
+                  if (timeRangeHours > 0) {
+                    const endTime = new Date();
+                    const startTime = new Date(endTime.getTime() - timeRangeHours * 60 * 60 * 1000);
+                    tableParams.set('start_time', startTime.toISOString());
+                    tableParams.set('end_time', endTime.toISOString());
+                  }
                   const tableResponse = await fetch(
-                    `/api/speedtest/history?start_time=${startTime.toISOString()}&end_time=${endTime.toISOString()}&page=${currentPage}&page_size=${pageSize}`,
+                    `/api/speedtest/history?${tableParams.toString()}`,
                     { headers: { 'Authorization': `Bearer ${token}` } }
                   );
                   if (tableResponse.ok) {
@@ -221,9 +229,12 @@ export function Speedtest() {
                     setTableData(tableData);
                   }
                   
-                  // Fetch and update last result
+                  const endTime = new Date();
+                  const lastParams = new URLSearchParams({ page: '1', page_size: '1' });
+                  lastParams.set('start_time', new Date(endTime.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString());
+                  lastParams.set('end_time', endTime.toISOString());
                   const lastResultResponse = await fetch(
-                    `/api/speedtest/history?start_time=${new Date(endTime.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()}&end_time=${endTime.toISOString()}&page=1&page_size=1`,
+                    `/api/speedtest/history?${lastParams.toString()}`,
                     { headers: { 'Authorization': `Bearer ${token}` } }
                   );
                   if (lastResultResponse.ok) {
@@ -560,15 +571,23 @@ export function Speedtest() {
                   <Table.HeadCell>Server</Table.HeadCell>
                 </Table.Head>
                 <Table.Body className="divide-y">
-                  {tableData?.results.map((result) => (
-                    <Table.Row key={result.id}>
-                      <Table.Cell>{formatTimestamp(result.timestamp)}</Table.Cell>
-                      <Table.Cell>{result.download_mbps.toFixed(2)}</Table.Cell>
-                      <Table.Cell>{result.upload_mbps.toFixed(2)}</Table.Cell>
-                      <Table.Cell>{result.ping_ms.toFixed(2)}</Table.Cell>
-                      <Table.Cell>{result.server_name || '-'}</Table.Cell>
+                  {tableData?.results.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={5} className="text-center text-gray-500 py-8">
+                        No results in this time range. Try &quot;All time&quot; above, or run a speedtest. If you use the scheduled speedtest, ensure the WebUI backend allows localhost to post results.
+                      </Table.Cell>
                     </Table.Row>
-                  ))}
+                  ) : (
+                    tableData?.results.map((result) => (
+                      <Table.Row key={result.id}>
+                        <Table.Cell>{formatTimestamp(result.timestamp)}</Table.Cell>
+                        <Table.Cell>{result.download_mbps.toFixed(2)}</Table.Cell>
+                        <Table.Cell>{result.upload_mbps.toFixed(2)}</Table.Cell>
+                        <Table.Cell>{result.ping_ms.toFixed(2)}</Table.Cell>
+                        <Table.Cell>{result.server_name || '-'}</Table.Cell>
+                      </Table.Row>
+                    ))
+                  )}
                 </Table.Body>
               </Table>
               {tableData && tableData.total_pages > 1 && (
