@@ -4,7 +4,7 @@ Authentication using PAM and JWT tokens
 import pwd
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
@@ -13,6 +13,7 @@ from .models import LoginRequest, LoginResponse
 
 
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 
 def _authenticate_via_socket(username: str, password: str) -> bool:
@@ -208,6 +209,29 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    return username
+
+
+async def get_current_user_or_localhost(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+) -> str:
+    """Allow either Bearer token or requests from localhost (for systemd timer posting speedtest results)."""
+    if request.client and request.client.host in ("127.0.0.1", "::1"):
+        return "system"
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    username = decode_access_token(credentials.credentials)
+    if username is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return username
 
 

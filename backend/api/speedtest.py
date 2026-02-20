@@ -15,7 +15,7 @@ import os
 from ..database import get_db, SpeedtestResultDB
 from ..config import settings
 from ..utils.redis_client import get_json, set_json
-from ..auth import get_current_user
+from ..auth import get_current_user, get_current_user_or_localhost
 
 router = APIRouter(prefix="/api/speedtest", tags=["speedtest"])
 
@@ -73,10 +73,10 @@ _speedtest_status = {
 @router.post("/results", response_model=SpeedtestResult)
 async def create_speedtest_result(
     result: SpeedtestResultCreate,
-    _: str = Depends(get_current_user),
+    _: str = Depends(get_current_user_or_localhost),
     db: AsyncSession = Depends(get_db)
 ):
-    """Store a speedtest result in the database"""
+    """Store a speedtest result in the database. Accepts requests from localhost (e.g. systemd timer) without a token."""
     db_result = SpeedtestResultDB(
         timestamp=datetime.now(timezone.utc),
         download_mbps=result.download_mbps,
