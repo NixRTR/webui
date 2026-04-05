@@ -61,9 +61,28 @@ class Settings(BaseSettings):
     whitelist_homelab_file: str = "/etc/nixos/config/dnsmasq/whitelist-homelab.nix"
     whitelist_lan_file: str = "/etc/nixos/config/dnsmasq/whitelist-lan.nix"
     
-    # Historical Data Retention
+    # Historical Data Retention (time-series: system, interfaces, disk I/O, temp, services, CAKE, speedtest)
     metrics_retention_days: int = 30
-    
+
+    # Bandwidth / connection stats: final delete age (tiered aggregation cutoffs below)
+    bandwidth_stats_retention_days: int = 180
+    bandwidth_aggregate_raw_after_days: int = 2
+    bandwidth_aggregate_1m_after_days: int = 7
+    bandwidth_aggregate_5m_after_days: int = 30
+    bandwidth_aggregate_1h_after_days: int = 90
+
+    # If > 0, after normal retention delete oldest remaining rows until DB size is under this (GiB). Opt-in.
+    metrics_max_database_gb: int = 0
+    # Floor: emergency trim never removes data newer than this many days (keeps at least this much history).
+    metrics_emergency_min_retention_days: int = 30
+    metrics_emergency_delete_batch_size: int = 50_000
+    metrics_emergency_max_batches: int = 500
+
+    # Scheduled VACUUM ANALYZE for metric tables (Celery beat); requires psql on PATH (e.g. NixOS aggregation worker)
+    metrics_vacuum_analyze_enabled: bool = True
+    # Optional explicit psql binary (default: search PATH)
+    psql_bin: Optional[str] = None
+
     # Notifications
     notification_check_interval: int = 30  # seconds between evaluation cycles
     

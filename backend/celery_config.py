@@ -31,6 +31,7 @@ worker_disable_rate_limits = False
 # Modules to import so workers register all tasks (autodiscover looks for .tasks submodule we don't use)
 include = [
     "backend.workers.aggregation",
+    "backend.workers.vacuum_metrics",
     "backend.workers.notifications",
     "backend.workers.redis_buffer",
     "backend.workers.history_cleanup",
@@ -45,6 +46,7 @@ task_routes = {
     'backend.workers.port_scanner.scan_new_device_ports': {'queue': 'sequential'},
     # Parallel: can run concurrently
     'backend.workers.aggregation.run_aggregation_job': {'queue': 'aggregation'},
+    'backend.workers.vacuum_metrics.vacuum_metric_tables_task': {'queue': 'aggregation'},
     'backend.workers.notifications.evaluate_notifications': {'queue': 'parallel'},
     'backend.workers.redis_buffer.flush_buffers': {'queue': 'parallel'},
     'backend.workers.port_scanner_periodic.scan_devices_periodic': {'queue': 'parallel'},

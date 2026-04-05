@@ -12,7 +12,7 @@ beat_schedule = {
         'schedule': crontab(hour=2, minute=0),  # 2 AM UTC daily
         'options': {'queue': 'aggregation'},  # ensure Beat sends to aggregation queue
     },
-    
+
     # Daily history cleanup at 3 AM UTC (after aggregation)
     'cleanup-history': {
         'task': 'backend.workers.history_cleanup.cleanup_history_task',
@@ -41,6 +41,15 @@ if settings.redis_write_buffer_enabled:
         'task': 'backend.workers.redis_buffer.flush_buffers',
         'schedule': settings.redis_buffer_flush_interval,  # Every 5 seconds
         'options': {'queue': 'parallel'},
+    }
+
+# VACUUM ANALYZE metric tables (psql on aggregation worker PATH).
+# Hour uses Celery timezone (UTC when TZ is unset; router module sets TZ on beat/aggregation).
+if settings.metrics_vacuum_analyze_enabled:
+    beat_schedule['vacuum-metric-tables'] = {
+        'task': 'backend.workers.vacuum_metrics.vacuum_metric_tables_task',
+        'schedule': crontab(hour=4, minute=0),
+        'options': {'queue': 'aggregation'},
     }
 
 

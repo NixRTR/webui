@@ -2,13 +2,14 @@
 Data aggregation module for tiered retention strategy
 Aggregates raw data into 1m, 5m, 1h, and 1d intervals to reduce storage
 """
-import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Tuple, Any
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import AsyncSessionLocal, ClientBandwidthStatsDB, ClientConnectionStatsDB
+from .metrics_retention import prune_time_series_metrics, emergency_trim_database
 
 
 async def aggregate_client_bandwidth_stats(session_factory: Any = None):
@@ -16,9 +17,14 @@ async def aggregate_client_bandwidth_stats(session_factory: Any = None):
     sf = session_factory or AsyncSessionLocal
     async with sf() as session:
         now = datetime.now(timezone.utc)
-        
-        # 1. Aggregate raw → 1-minute: Data older than 2 days
-        cutoff_2d = now - timedelta(days=2)
+        d2 = settings.bandwidth_aggregate_raw_after_days
+        d7 = settings.bandwidth_aggregate_1m_after_days
+        d30 = settings.bandwidth_aggregate_5m_after_days
+        d90 = settings.bandwidth_aggregate_1h_after_days
+        ret_final = settings.bandwidth_stats_retention_days
+
+        # 1. Aggregate raw → 1-minute: Data older than N days
+        cutoff_2d = now - timedelta(days=d2)
         await _aggregate_to_interval(
             session,
             ClientBandwidthStatsDB,
@@ -29,8 +35,8 @@ async def aggregate_client_bandwidth_stats(session_factory: Any = None):
             group_by=['mac_address', 'ip_address', 'network']
         )
         
-        # 2. Aggregate 1-minute → 5-minute: Data older than 7 days
-        cutoff_7d = now - timedelta(days=7)
+        # 2. Aggregate 1-minute → 5-minute: Data older than N days
+        cutoff_7d = now - timedelta(days=d7)
         await _aggregate_to_interval(
             session,
             ClientBandwidthStatsDB,
@@ -41,8 +47,8 @@ async def aggregate_client_bandwidth_stats(session_factory: Any = None):
             group_by=['mac_address', 'ip_address', 'network']
         )
         
-        # 3. Aggregate 5-minute → 1-hour: Data older than 30 days
-        cutoff_30d = now - timedelta(days=30)
+        # 3. Aggregate 5-minute → 1-hour: Data older than N days
+        cutoff_30d = now - timedelta(days=d30)
         await _aggregate_to_interval(
             session,
             ClientBandwidthStatsDB,
@@ -53,8 +59,8 @@ async def aggregate_client_bandwidth_stats(session_factory: Any = None):
             group_by=['mac_address', 'ip_address', 'network']
         )
         
-        # 4. Aggregate 1-hour → 1-day: Data older than 90 days
-        cutoff_90d = now - timedelta(days=90)
+        # 4. Aggregate 1-hour → 1-day: Data older than N days
+        cutoff_90d = now - timedelta(days=d90)
         await _aggregate_to_interval(
             session,
             ClientBandwidthStatsDB,
@@ -65,11 +71,11 @@ async def aggregate_client_bandwidth_stats(session_factory: Any = None):
             group_by=['mac_address', 'ip_address', 'network']
         )
         
-        # 5. Delete data older than retention period (1 year)
-        cutoff_1y = now - timedelta(days=365)
+        # 5. Delete data older than final retention
+        cutoff_final = now - timedelta(days=ret_final)
         await session.execute(
             delete(ClientBandwidthStatsDB).where(
-                ClientBandwidthStatsDB.timestamp < cutoff_1y
+                ClientBandwidthStatsDB.timestamp < cutoff_final
             )
         )
         
@@ -81,9 +87,14 @@ async def aggregate_client_connection_stats(session_factory: Any = None):
     sf = session_factory or AsyncSessionLocal
     async with sf() as session:
         now = datetime.now(timezone.utc)
-        
-        # 1. Aggregate raw → 1-minute: Data older than 2 days
-        cutoff_2d = now - timedelta(days=2)
+        d2 = settings.bandwidth_aggregate_raw_after_days
+        d7 = settings.bandwidth_aggregate_1m_after_days
+        d30 = settings.bandwidth_aggregate_5m_after_days
+        d90 = settings.bandwidth_aggregate_1h_after_days
+        ret_final = settings.bandwidth_stats_retention_days
+
+        # 1. Aggregate raw → 1-minute: Data older than N days
+        cutoff_2d = now - timedelta(days=d2)
         await _aggregate_to_interval(
             session,
             ClientConnectionStatsDB,
@@ -94,8 +105,8 @@ async def aggregate_client_connection_stats(session_factory: Any = None):
             group_by=['client_ip', 'client_mac', 'remote_ip', 'remote_port']
         )
         
-        # 2. Aggregate 1-minute → 5-minute: Data older than 7 days
-        cutoff_7d = now - timedelta(days=7)
+        # 2. Aggregate 1-minute → 5-minute: Data older than N days
+        cutoff_7d = now - timedelta(days=d7)
         await _aggregate_to_interval(
             session,
             ClientConnectionStatsDB,
@@ -106,8 +117,8 @@ async def aggregate_client_connection_stats(session_factory: Any = None):
             group_by=['client_ip', 'client_mac', 'remote_ip', 'remote_port']
         )
         
-        # 3. Aggregate 5-minute → 1-hour: Data older than 30 days
-        cutoff_30d = now - timedelta(days=30)
+        # 3. Aggregate 5-minute → 1-hour: Data older than N days
+        cutoff_30d = now - timedelta(days=d30)
         await _aggregate_to_interval(
             session,
             ClientConnectionStatsDB,
@@ -118,8 +129,8 @@ async def aggregate_client_connection_stats(session_factory: Any = None):
             group_by=['client_ip', 'client_mac', 'remote_ip', 'remote_port']
         )
         
-        # 4. Aggregate 1-hour → 1-day: Data older than 90 days
-        cutoff_90d = now - timedelta(days=90)
+        # 4. Aggregate 1-hour → 1-day: Data older than N days
+        cutoff_90d = now - timedelta(days=d90)
         await _aggregate_to_interval(
             session,
             ClientConnectionStatsDB,
@@ -130,11 +141,11 @@ async def aggregate_client_connection_stats(session_factory: Any = None):
             group_by=['client_ip', 'client_mac', 'remote_ip', 'remote_port']
         )
         
-        # 5. Delete data older than retention period (1 year)
-        cutoff_1y = now - timedelta(days=365)
+        # 5. Delete data older than final retention
+        cutoff_final = now - timedelta(days=ret_final)
         await session.execute(
             delete(ClientConnectionStatsDB).where(
-                ClientConnectionStatsDB.timestamp < cutoff_1y
+                ClientConnectionStatsDB.timestamp < cutoff_final
             )
         )
         
@@ -269,8 +280,10 @@ async def run_aggregation_job(session_factory: Any = None):
     try:
         print("Starting data aggregation job...")
         sf = session_factory or AsyncSessionLocal
+        await prune_time_series_metrics(sf)
         await aggregate_client_bandwidth_stats(sf)
         await aggregate_client_connection_stats(sf)
+        await emergency_trim_database(sf)
         print("Data aggregation job completed successfully")
     except Exception as e:
         print(f"Error in aggregation job: {e}")
